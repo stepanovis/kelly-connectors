@@ -1,0 +1,12 @@
+{
+  "name": "telegram",
+  "version": "1.1.0",
+  "runtime": "python",
+  "entry": "bridge.py",
+  "port": 3200,
+  "label": "Telegram",
+  "provision": [
+    "python3 -m venv venv",
+    "venv/bin/pip install --disable-pip-version-check -q -r requirements.txt"
+  ]
+}

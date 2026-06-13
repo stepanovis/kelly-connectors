@@ -1,0 +1,8 @@
+{
+  "name": "whatsapp",
+  "runtime": "node",
+  "entry": "index.js",
+  "port": 3100,
+  "label": "WhatsApp",
+  "provision": ["node node_modules/puppeteer/install.mjs"]
+}

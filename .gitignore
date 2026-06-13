@@ -1,0 +1,6 @@
+dist/
+**/node_modules/
+**/venv/
+**/telegram_session*
+*.zip
+.DS_Store
