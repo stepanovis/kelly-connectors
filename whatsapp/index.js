@@ -2,13 +2,20 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const express = require('express');
 const QRCode = require('qrcode');
 const path = require('path');
+const { buildAuthDescriptor } = require('./auth_descriptor');
 
 const PORT = process.env.PORT || 3100;
 const TOKEN = process.env.BRIDGE_TOKEN || process.env.API_TOKEN || '';
 
 let qrCode = null;
+let qrReceivedAt = 0;
 let connectionStatus = 'disconnected';
 let isReady = false;
+let authError = null;
+
+function authDescriptor() {
+  return buildAuthDescriptor({ isReady, connectionStatus, qrCode, qrReceivedAt, authError });
+}
 
 // ── WhatsApp Client ──
 const client = new Client({
@@ -22,23 +29,27 @@ const client = new Client({
 
 client.on('qr', (qr) => {
   qrCode = qr;
+  qrReceivedAt = Date.now();
   connectionStatus = 'awaiting_qr';
   console.log('[WhatsApp] QR code received. Open /qr in browser to scan.');
 });
 
 client.on('ready', () => {
   qrCode = null;
+  authError = null;
   connectionStatus = 'connected';
   isReady = true;
   console.log('[WhatsApp] Connected and ready!');
 });
 
 client.on('authenticated', () => {
+  authError = null;
   console.log('[WhatsApp] Authenticated.');
 });
 
 client.on('auth_failure', (msg) => {
   connectionStatus = 'auth_failure';
+  authError = typeof msg === 'string' ? msg : 'Ошибка авторизации';
   console.error('[WhatsApp] Auth failure:', msg);
 });
 
@@ -100,9 +111,42 @@ app.get('/qr', async (req, res) => {
   }
 });
 
-// QR as JSON
+// QR as JSON (legacy — generic-драйвер читает /auth/status; оставлено на миграцию)
 app.get('/qr.json', (req, res) => {
   res.json({ qr: qrCode, status: connectionStatus });
+});
+
+// ── Connect state machine (Контракт 1) — без auth (сессии ещё нет) ──
+// GET /auth/status — дескриптор текущего шага машины (QR / connected / error)
+app.get('/auth/status', (req, res) => res.json(authDescriptor()));
+
+// POST /auth/start — начать/перезапустить флоу (инициировать генерацию QR).
+// У WhatsApp нет initial-полей (connect_schema.initial=[]) — сразу к QR. Идемпотентно.
+app.post('/auth/start', (req, res) => {
+  if (isReady) return res.json(authDescriptor());
+  if (connectionStatus === 'disconnected' || connectionStatus === 'auth_failure') {
+    authError = null;
+    Promise.resolve()
+      .then(() => client.initialize())
+      .catch((e) => { authError = e.message; connectionStatus = 'auth_failure'; });
+  }
+  res.json(authDescriptor());
+});
+
+// POST /auth/submit — QR-флоу НЕ принимает ввод (скан происходит на устройстве вне Kelly).
+app.post('/auth/submit', (req, res) => {
+  res.status(400).json({ error: 'qr step expects no input; scan on device', ...authDescriptor() });
+});
+
+// POST /auth/cancel — тёрдаун незавершённой сессии (Контракт 1, V4): logout + сброс в idle.
+app.post('/auth/cancel', async (req, res) => {
+  try { await client.logout(); } catch (_) {}
+  try { await client.destroy(); } catch (_) {}
+  qrCode = null;
+  isReady = false;
+  connectionStatus = 'disconnected';
+  authError = null;
+  res.json(authDescriptor());
 });
 
 // All routes below require auth
@@ -267,21 +311,25 @@ app.post('/messages/send', async (req, res) => {
   }
 });
 
-// ── Start ──
-app.listen(PORT, '127.0.0.1', () => {
-  console.log(`[API] WhatsApp Bridge v2 running on http://127.0.0.1:${PORT}`);
-  console.log(`[API] Token: ${TOKEN}`);
-  console.log(`[API] Endpoints:`);
-  console.log(`  GET  /status             - Connection status`);
-  console.log(`  GET  /qr                 - QR code for linking`);
-  console.log(`  GET  /contacts           - List contacts (with names!)`);
-  console.log(`  GET  /contacts/search?q= - Search contacts`);
-  console.log(`  GET  /chats              - List chats`);
-  console.log(`  GET  /messages?chatId=   - Read messages`);
-  console.log(`  GET  /messages/unread    - Unread messages`);
-  console.log(`  POST /messages/send      - Send message`);
-  console.log('');
-});
+// ── Start (только при прямом запуске; при require — модуль импортируется без side-effects) ──
+if (require.main === module) {
+  app.listen(PORT, '127.0.0.1', () => {
+    console.log(`[API] WhatsApp Bridge v2 running on http://127.0.0.1:${PORT}`);
+    console.log(`[API] Token: ${TOKEN}`);
+    console.log(`[API] Endpoints:`);
+    console.log(`  GET  /status             - Connection status`);
+    console.log(`  GET  /auth/status        - Connect state-machine descriptor`);
+    console.log(`  POST /auth/start         - Begin/restart connect flow (QR)`);
+    console.log(`  POST /auth/cancel        - Tear down in-progress session`);
+    console.log(`  GET  /contacts           - List contacts (with names!)`);
+    console.log(`  GET  /chats              - List chats`);
+    console.log(`  GET  /messages?chatId=   - Read messages`);
+    console.log(`  POST /messages/send      - Send message`);
+    console.log('');
+  });
 
-console.log('[WhatsApp] Initializing client (launching headless Chrome)...');
-client.initialize();
+  console.log('[WhatsApp] Initializing client (launching headless Chrome)...');
+  client.initialize();
+}
+
+module.exports = { app, buildAuthDescriptor };

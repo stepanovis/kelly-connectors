@@ -137,10 +137,18 @@ def message_to_dict(msg, chat_id_str=''):
 
 
 # ── Auth middleware ──
+# Connect-flow endpoints are unauthenticated (the connection is being established —
+# there is no session yet); everything else requires the bridge token. Token is still
+# validated on every data/send endpoint (Контракт 1 MUST, флаг V3).
+_AUTH_OPEN_PATHS = (
+    '/status', '/auth/status', '/auth/code',
+    '/auth/start', '/auth/submit', '/auth/cancel',
+)
+
+
 @web.middleware
 async def auth_middleware(request, handler):
-    # Status and auth endpoints don't require auth
-    if request.path in ('/status', '/auth/status', '/auth/code'):
+    if request.path in _AUTH_OPEN_PATHS:
         return await handler(request)
     auth = request.headers.get('Authorization', '')
     if auth != f'Bearer {TOKEN}':
@@ -379,35 +387,173 @@ async def handle_messages_send(request):
         return web.json_response({'error': str(e)}, status=500)
 
 
-# ── Auth code queue (for non-interactive auth) ──
-auth_code_queue: asyncio.Queue = None
-auth_status = 'idle'  # idle | awaiting_code | awaiting_2fa | connected | error
-auth_error = ''
+# ── Connect state machine (Контракт 1, connector-driven) ──
+# state: collecting (ждём вход от Kelly) | pending (флоу идёт) | connected | error
+# step:  дескриптор поля(ей), которые Kelly собирает СЕЙЧАС, либо None
+# error: { message, terminal }  — terminal=True → рестарт флоу; False → переспрос шага
+auth_code_queue: asyncio.Queue = None   # подаёт code/2FA в идущий флоу
+auth_state = 'collecting'
+auth_step = None
+auth_error = None
+_auth_task = None                       # asyncio.Task текущего флоу
+_creds = {'api_id': API_ID or None, 'api_hash': API_HASH or None, 'phone': PHONE or None}
+
+STEP_CODE = {'id': 'code', 'fields': [{'key': 'code', 'type': 'code', 'label': 'Код из Telegram'}]}
+STEP_2FA = {'id': '2fa', 'fields': [{'key': 'password', 'type': 'secret', 'label': 'Пароль 2FA'}]}
 
 
-async def handle_auth_code(request):
-    """POST /auth/code — submit Telegram verification code or 2FA password."""
-    global auth_status, auth_error
+def _auth_descriptor():
+    return {'state': auth_state, 'step': auth_step, 'error': auth_error, 'ready': is_ready}
+
+
+async def handle_auth_status(request):
+    """GET /auth/status — дескриптор текущего шага машины (Контракт 1)."""
+    return web.json_response(_auth_descriptor())
+
+
+async def handle_auth_start(request):
+    """POST /auth/start — начать/перезапустить connect-флоу с initial-полями
+    (api_id/api_hash/phone из connect_schema). Идемпотентно, если уже connected."""
+    global _creds, _auth_task, auth_state, auth_error, auth_step
+    if is_ready:
+        return web.json_response(_auth_descriptor())  # уже подключены — идемпотент
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    inputs = data.get('inputs', data) or {}
+    # Принимаем inputs; недостающее поле берём из env (миграция).
+    api_id = inputs.get('api_id') or API_ID
+    api_hash = inputs.get('api_hash') or API_HASH
+    phone = inputs.get('phone') or PHONE
+    if not api_id or not api_hash or not phone:
+        return web.json_response({'error': 'api_id, api_hash, phone required'}, status=400)
+    _creds = {'api_id': int(api_id), 'api_hash': str(api_hash), 'phone': str(phone)}
+    if _auth_task and not _auth_task.done():
+        _auth_task.cancel()
+    auth_error = None
+    auth_step = None
+    auth_state = 'pending'
+    _auth_task = asyncio.ensure_future(_run_auth_flow())
+    return web.json_response(_auth_descriptor())
+
+
+async def handle_auth_submit(request):
+    """POST /auth/submit — generic-сабмит для ТЕКУЩЕГО шага (code | 2FA password).
+    Заменяет /auth/code (тот остаётся временным alias на миграцию)."""
     try:
         data = await request.json()
     except Exception:
         return web.json_response({'error': 'Invalid JSON'}, status=400)
-    code = data.get('code', '')
-    if not code:
-        return web.json_response({'error': 'code required'}, status=400)
-    if auth_code_queue:
-        await auth_code_queue.put(str(code))
-        return web.json_response({'ok': True, 'status': auth_status})
-    return web.json_response({'error': 'Not awaiting code', 'status': auth_status}, status=400)
+    inputs = data.get('inputs', data) or {}
+    value = inputs.get('code') or inputs.get('password') or data.get('code')
+    if not value:
+        return web.json_response({'error': 'no input value for current step'}, status=400)
+    if auth_state != 'pending' or auth_step is None or auth_code_queue is None:
+        return web.json_response({'error': 'not awaiting input', **_auth_descriptor()}, status=400)
+    await auth_code_queue.put(str(value))
+    return web.json_response({'ok': True, **_auth_descriptor()})
 
 
-async def handle_auth_status(request):
-    """GET /auth/status — check auth state."""
-    return web.json_response({
-        'status': auth_status,
-        'ready': is_ready,
-        'error': auth_error,
-    })
+async def handle_auth_code(request):
+    """POST /auth/code — DEPRECATED alias of /auth/submit (миграция установленных коннекторов)."""
+    return await handle_auth_submit(request)
+
+
+async def handle_auth_cancel(request):
+    """POST /auth/cancel — тёрдаун незавершённой сессии (Контракт 1, V4):
+    отменить флоу, отключить клиент, вернуться в 'collecting'."""
+    global _auth_task, auth_state, auth_step, auth_error
+    if _auth_task and not _auth_task.done():
+        _auth_task.cancel()
+    if client is not None and not is_ready:
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+    auth_state = 'collecting'
+    auth_step = None
+    auth_error = None
+    return web.json_response(_auth_descriptor())
+
+
+async def _run_auth_flow():
+    """Telegram auth-флоу, запускается /auth/start, кормится /auth/submit.
+    Двигает auth_state/auth_step/auth_error — их отдаёт /auth/status."""
+    global client, is_ready, auth_state, auth_step, auth_error
+    try:
+        client = TelegramClient(SESSION_FILE, _creds['api_id'], _creds['api_hash'])
+        await client.connect()
+
+        if not await client.is_user_authorized():
+            await client.send_code_request(_creds['phone'])
+            auth_state = 'pending'
+            auth_step = STEP_CODE
+            auth_error = None
+            log.info(f"Code sent to {_creds['phone']}. Waiting via POST /auth/submit ...")
+
+            needs_2fa = False
+            while True:
+                code = await auth_code_queue.get()
+                auth_error = None
+                try:
+                    await client.sign_in(_creds['phone'], code)
+                    break
+                except PhoneCodeInvalidError:
+                    auth_step = STEP_CODE
+                    auth_error = {'message': 'Неверный код. Попробуй ещё раз.', 'terminal': False}
+                    log.warning('Wrong Telegram code — asking again')
+                except PhoneCodeExpiredError:
+                    auth_state = 'error'
+                    auth_step = None
+                    auth_error = {'message': 'Код истёк. Перезапусти подключение.', 'terminal': True}
+                    log.warning('Telegram code expired — terminal')
+                    return
+                except SessionPasswordNeededError:
+                    needs_2fa = True
+                    auth_step = STEP_2FA
+                    auth_error = None
+                    log.info('2FA required. Send password via POST /auth/submit')
+                    break
+                except Exception as e:
+                    auth_state = 'error'
+                    auth_step = None
+                    auth_error = {'message': str(e), 'terminal': True}
+                    log.error(f'Code auth failed: {e}')
+                    return
+
+            if needs_2fa:
+                while True:
+                    password = await auth_code_queue.get()
+                    auth_error = None
+                    try:
+                        await client.sign_in(password=password)
+                        break
+                    except PasswordHashInvalidError:
+                        auth_step = STEP_2FA
+                        auth_error = {'message': 'Неверный пароль 2FA. Попробуй ещё раз.', 'terminal': False}
+                        log.warning('Wrong 2FA password — asking again')
+                    except Exception as e:
+                        auth_state = 'error'
+                        auth_step = None
+                        auth_error = {'message': str(e), 'terminal': True}
+                        log.error(f'2FA auth failed: {e}')
+                        return
+
+        is_ready = True
+        auth_state = 'connected'
+        auth_step = None
+        auth_error = None
+        me = await client.get_me()
+        log.info(f'Connected as: {me.first_name} {me.last_name or ""} (@{me.username or "no username"})')
+    except asyncio.CancelledError:
+        log.info('Auth flow cancelled')
+        raise
+    except Exception as e:
+        auth_state = 'error'
+        auth_step = None
+        auth_error = {'message': str(e), 'terminal': True}
+        log.error(f'Auth failed: {e}')
 
 
 # ── App setup ──
@@ -415,7 +561,10 @@ def create_app():
     app = web.Application(middlewares=[auth_middleware])
     app.router.add_get('/status', handle_status)
     app.router.add_get('/auth/status', handle_auth_status)
-    app.router.add_post('/auth/code', handle_auth_code)
+    app.router.add_post('/auth/start', handle_auth_start)
+    app.router.add_post('/auth/submit', handle_auth_submit)
+    app.router.add_post('/auth/cancel', handle_auth_cancel)
+    app.router.add_post('/auth/code', handle_auth_code)  # legacy alias → /auth/submit
     app.router.add_get('/contacts', handle_contacts)
     app.router.add_get('/contacts/search', handle_contacts_search)
     app.router.add_get('/chats', handle_chats)
@@ -427,103 +576,38 @@ def create_app():
 
 
 async def main():
-    global client, is_ready, auth_code_queue, auth_status, auth_error
-
-    if not API_ID or not API_HASH:
-        log.error('TELEGRAM_API_ID and TELEGRAM_API_HASH are required.')
-        log.error('Get them at https://my.telegram.org/apps')
-        return
+    global auth_code_queue, auth_state
 
     auth_code_queue = asyncio.Queue()
 
-    # Start HTTP server first so we can receive auth code via API
+    # Start HTTP server first — connect-flow is driven over the API.
     app = create_app()
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '127.0.0.1', PORT)
     await site.start()
     log.info(f'Telegram Bridge running on http://127.0.0.1:{PORT}')
-    log.info('Starting Telegram auth...')
 
-    try:
-        log.info('Initializing Telegram client...')
-        client = TelegramClient(SESSION_FILE, API_ID, API_HASH)
-        await client.connect()
-
-        if not await client.is_user_authorized():
-            auth_status = 'awaiting_code'
-            auth_error = ''
-            await client.send_code_request(PHONE)
-            log.info(f'Code sent to {PHONE}. Waiting via POST /auth/code ...')
-
-            # ── Code retry loop ────────────────────────────────────────────
-            needs_2fa = False
-            while True:
-                code = await auth_code_queue.get()
-                auth_error = ''  # clear on each new attempt
-                try:
-                    await client.sign_in(PHONE, code)
-                    break  # success
-                except PhoneCodeInvalidError:
-                    auth_status = 'awaiting_code'
-                    auth_error = 'Неверный код. Попробуй ещё раз.'
-                    log.warning('Wrong Telegram code — asking again')
-                except PhoneCodeExpiredError:
-                    auth_status = 'error'
-                    auth_error = 'Код истёк. Перезапусти подключение.'
-                    log.warning('Telegram code expired — terminal')
-                    break
-                except SessionPasswordNeededError:
-                    needs_2fa = True
-                    auth_status = 'awaiting_2fa'
-                    auth_error = ''
-                    log.info('2FA required. Send password via POST /auth/code')
-                    break
-                except Exception as e:
-                    auth_status = 'error'
-                    auth_error = str(e)
-                    log.error(f'Code auth failed: {e}')
-                    break
-
-            # ── 2FA retry loop ─────────────────────────────────────────────
-            if needs_2fa:
-                while True:
-                    password = await auth_code_queue.get()
-                    auth_error = ''  # clear on each new attempt
-                    try:
-                        await client.sign_in(password=password)
-                        break  # success
-                    except PasswordHashInvalidError:
-                        auth_status = 'awaiting_2fa'
-                        auth_error = 'Неверный пароль 2FA. Попробуй ещё раз.'
-                        log.warning('Wrong 2FA password — asking again')
-                    except Exception as e:
-                        auth_status = 'error'
-                        auth_error = str(e)
-                        log.error(f'2FA auth failed: {e}')
-                        break
-
-        if auth_status != 'error':
-            is_ready = True
-            auth_status = 'connected'
-            me = await client.get_me()
-            log.info(f'Connected as: {me.first_name} {me.last_name or ""} (@{me.username or "no username"})')
-            log.info(f'Phone: {me.phone}')
-    except Exception as e:
-        auth_status = 'error'
-        auth_error = str(e)
-        log.error(f'Auth failed: {e}')
+    # Migration fallback: credentials via env (current Kelly install path) →
+    # auto-start the flow. New Kelly drives it via POST /auth/start with inputs.
+    if API_ID and API_HASH and PHONE:
+        log.info('Env credentials present — auto-starting auth (migration path)')
+        auth_state = 'pending'
+        asyncio.ensure_future(_run_auth_flow())
+    else:
+        auth_state = 'collecting'
+        log.info('Awaiting POST /auth/start with api_id/api_hash/phone')
 
     log.info(f'Token: {TOKEN}')
     log.info('Endpoints:')
     log.info('  GET  /status              - Connection status')
-    log.info('  GET  /auth/status         - Auth status')
-    log.info('  POST /auth/code           - Submit verification code')
+    log.info('  GET  /auth/status         - Connect state-machine descriptor')
+    log.info('  POST /auth/start          - Begin/restart connect flow (inputs)')
+    log.info('  POST /auth/submit         - Submit current step (code / 2FA)')
+    log.info('  POST /auth/cancel         - Tear down in-progress session')
     log.info('  GET  /contacts            - List contacts')
-    log.info('  GET  /contacts/search?q=  - Search contacts')
     log.info('  GET  /chats               - List dialogs')
     log.info('  GET  /messages?chatId=    - Read messages')
-    log.info('  GET  /messages/unread     - Unread messages')
     log.info('  POST /messages/send       - Send message')
     log.info('')
 

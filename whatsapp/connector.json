@@ -1,8 +1,13 @@
 {
   "name": "whatsapp",
+  "bridge_id": "whatsapp",
+  "type": "messenger",
+  "version": "1.1.0",
+  "contract_version": "1.0",
   "runtime": "node",
   "entry": "index.js",
   "port": 3100,
   "label": "WhatsApp",
+  "capabilities": ["send", "read", "contacts", "stable_message_id"],
   "provision": ["node node_modules/puppeteer/install.mjs"]
 }

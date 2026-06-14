@@ -29,7 +29,7 @@ build_whatsapp() {
   rm -f dist/whatsapp.zip
   ( cd whatsapp && npm ci --omit=dev >/dev/null 2>&1 || npm install --omit=dev >/dev/null 2>&1 )
   # Chrome не кладём в zip — его тянет provision (puppeteer install.mjs) на машине пользователя.
-  ( cd whatsapp && zip -qr "../dist/whatsapp.zip" index.js connector.json package.json package-lock.json node_modules )
+  ( cd whatsapp && zip -qr "../dist/whatsapp.zip" index.js auth_descriptor.js connector.json package.json package-lock.json node_modules )
   echo "  ✓ $(du -h dist/whatsapp.zip | cut -f1) zip"
 }
 

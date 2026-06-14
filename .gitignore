@@ -4,3 +4,5 @@ dist/
 **/telegram_session*
 *.zip
 .DS_Store
+.testenv/
+__pycache__/
