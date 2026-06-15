@@ -2,7 +2,7 @@
   "name": "whatsapp",
   "bridge_id": "whatsapp",
   "type": "messenger",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "contract_version": "1.0",
   "runtime": "node",
   "entry": "index.js",
