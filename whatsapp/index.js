@@ -3,6 +3,7 @@ const express = require('express');
 const QRCode = require('qrcode');
 const path = require('path');
 const { buildAuthDescriptor } = require('./auth_descriptor');
+const chatid = require('./chatid');
 
 const PORT = process.env.PORT || 3100;
 const TOKEN = process.env.BRIDGE_TOKEN || process.env.API_TOKEN || '';
@@ -58,6 +59,31 @@ client.on('disconnected', (reason) => {
   isReady = false;
   console.log('[WhatsApp] Disconnected:', reason);
 });
+
+// ── Канонизация chat-id (P0 #270): @lid ↔ @c.us → один канон <pn>@c.us ──
+// Логика в чистом ./chatid (тестируется без сессии). Здесь — только wweb-резолв телефона.
+const lidCache = chatid.createLidCache();
+
+// Заполнить lidCache по списку реальных serialized id ОДНИМ batch-вызовом getContactLidAndPhone
+// для незакэшированных @lid (анти-бан: не на каждое сообщение/чат, и не повторно). @c.us
+// кэшируем сразу (канон→self). Молча деградируем, если резолв не вышел.
+async function primeLidCache(serializedIds) {
+  const need = [];
+  for (const id of serializedIds) {
+    const { user, server } = chatid.parseId(id);
+    if (server === chatid.CUS_SERVER) lidCache.remember(id, user);
+    else if (server === chatid.LID_SERVER && !lidCache.pnForLid(id)) need.push(id);
+  }
+  if (need.length === 0) return;
+  try {
+    const resolved = await client.getContactLidAndPhone(need);
+    if (Array.isArray(resolved)) {
+      for (const entry of resolved) {
+        if (entry && entry.lid && entry.pn) lidCache.remember(String(entry.lid), String(entry.pn));
+      }
+    }
+  } catch (_) { /* резолв недоступен — затронутые @lid останутся как есть (F4 не хуже текущего) */ }
+}
 
 // ── Auth middleware ──
 function authMiddleware(req, res, next) {
@@ -205,8 +231,11 @@ app.get('/chats', async (req, res) => {
   if (!isReady) return res.status(503).json({ error: 'WhatsApp not ready' });
   try {
     const chats = await client.getChats();
+    // P0 #270: канонизируем chat-id к <pn>@c.us, чтобы буквальный матч Kelly сошёлся для
+    // LID-мигрированных контактов. Batch-резолв телефонов до маппинга.
+    await primeLidCache(chats.map((chat) => chat.id._serialized));
     const list = chats.map((chat) => ({
-      id: chat.id._serialized,
+      id: chatid.toCanonical(chat.id._serialized, lidCache) || chat.id._serialized,
       name: chat.name || '',
       isGroup: chat.isGroup,
       unreadCount: chat.unreadCount || 0,
@@ -226,7 +255,10 @@ app.get('/messages', async (req, res) => {
   const { chatId, limit = 50 } = req.query;
   if (!chatId) return res.status(400).json({ error: 'chatId parameter required' });
   try {
-    const chat = await client.getChatById(chatId);
+    // P0 #270: chatId приходит каноническим (<pn>@c.us). Обратный резолв к РЕАЛЬНОМУ
+    // serialized (@lid|@c.us, который wweb точно знает) — не полагаемся на резолв
+    // getChatById(<pn>@c.us) для @lid-контакта. Кэш заполнен предыдущим /chats-свипом.
+    const chat = await client.getChatById(lidCache.realFor(chatId));
     // Open chat in background to trigger WhatsApp Web loading before fetchMessages
     try { await chat.sendSeen(); } catch (_) {}
     await new Promise(r => setTimeout(r, 1500));
@@ -258,12 +290,14 @@ app.get('/messages/unread', async (req, res) => {
   if (!isReady) return res.status(503).json({ error: 'WhatsApp not ready' });
   try {
     const chats = await client.getChats();
+    // P0 #270: канонизируем chatId непрочитанных чатов к <pn>@c.us (batch-резолв @lid).
+    await primeLidCache(chats.filter((c) => c.unreadCount > 0).map((c) => c.id._serialized));
     const unread = [];
     for (const chat of chats) {
       if (chat.unreadCount > 0) {
         const messages = await chat.fetchMessages({ limit: chat.unreadCount });
         unread.push({
-          chatId: chat.id._serialized,
+          chatId: chatid.toCanonical(chat.id._serialized, lidCache) || chat.id._serialized,
           name: chat.name || '',
           isGroup: chat.isGroup,
           unreadCount: chat.unreadCount,
@@ -305,7 +339,10 @@ app.post('/messages/send', async (req, res) => {
 
   try {
     const msg = await client.sendMessage(target, text);
-    res.json({ ok: true, id: msg.id._serialized, to: target });
+    // P0 #270: подписка ключуется на ЭТОТ to — отдаём канон <pn>@c.us, чтобы он совпал с
+    // каноном входящего/chat.id того же контакта. target обычно <num>@c.us → канон = он же.
+    const canonicalTo = chatid.toCanonical(target, lidCache) || target;
+    res.json({ ok: true, id: msg.id._serialized, to: canonicalTo });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
