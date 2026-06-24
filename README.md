@@ -35,6 +35,8 @@ gh release upload connectors-v1 dist/telegram.zip --clobber --repo stepanovis/ke
 
 > Релиз должен быть **обычным, НЕ prerelease** — иначе `releases/latest/download/<name>.zip` отдаёт 404 (GitHub `/latest` игнорирует prerelease).
 
+> **Обновление установленного коннектора — ТОЛЬКО полным zip** (кнопка «Обновить коннектор» в Kelly = `installConnector` → `unzip -o` перезаписывает ВСЕ файлы, включая `bridge.py`). НИКОГДА не правь установленный `~/.aidev/connectors/<name>/connector.json` руками (например, чтобы «бампнуть версию»): тогда номер версии станет `X.Y.Z`, а `bridge.py` останется старым — Kelly увидит `installed==latest` и не предложит апдейт, версия будет врать про код (грабли #390). Поднял версию → пересобери zip (`./build.sh`) и перезалей в `connectors-v1`; локально проверяй через переустановку, а не ручную правку манифеста.
+
 ## Чистота пакетов
 
 В zip НЕ попадают: личные api_id/телефоны, файлы сессий (`telegram_session*`), токены. Токен моста генерится Kelly при установке и передаётся через env. См. `.gitignore`.
