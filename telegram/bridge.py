@@ -25,6 +25,7 @@ import os
 import asyncio
 import json
 import logging
+import signal as _signal
 import time
 from datetime import datetime, timezone
 
@@ -587,6 +588,22 @@ async def main():
     site = web.TCPSite(runner, '127.0.0.1', PORT)
     await site.start()
     log.info(f'Telegram Bridge running on http://127.0.0.1:{PORT}')
+
+    # asyncio-safe signal handling via loop.add_signal_handler (runs in loop thread).
+    # SIGPIPE: SIG_IGN via signal.signal() — safe for non-async disposition change.
+    loop = asyncio.get_running_loop()
+
+    def _handle_sigterm():
+        log.info('Received SIGTERM — shutting down')
+        loop.stop()
+
+    loop.add_signal_handler(_signal.SIGTERM, _handle_sigterm)
+    _signal.signal(_signal.SIGPIPE, _signal.SIG_IGN)
+
+    # Catch unhandled asyncio Task exceptions (e.g. Telethon internal crashes).
+    def _exc_handler(loop, context):
+        log.error(f'asyncio unhandled: {context.get("message")}: {context.get("exception")!r}')
+    loop.set_exception_handler(_exc_handler)
 
     # Migration fallback: credentials via env (current Kelly install path) →
     # auto-start the flow. New Kelly drives it via POST /auth/start with inputs.

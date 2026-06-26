@@ -4,14 +4,17 @@
 # ровно как ждёт загрузчик Kelly (installConnector → unzip -o в
 # ~/.aidev/connectors/<name>/, затем читает connector.json в корне).
 #
-# Использование:
-#   ./build.sh            # собрать оба
-#   ./build.sh telegram   # только telegram
-#   ./build.sh whatsapp   # только whatsapp
+# Также генерирует dist/manifest.json — карту актуальных версий всех коннекторов.
+# Kelly читает его при проверке обновлений (checkConnectorUpdates).
 #
-# Готовые zip заливаются ассетами в GitHub Release (обычный, НЕ prerelease —
-# иначе releases/latest/download/<name>.zip вернёт 404). Пример:
-#   gh release upload connectors-v1 dist/telegram.zip --clobber
+# Использование:
+#   ./build.sh            # собрать оба + manifest
+#   ./build.sh telegram   # только telegram + manifest
+#   ./build.sh whatsapp   # только whatsapp + manifest
+#
+# Готовые файлы заливаются ассетами в GitHub Release (обычный, НЕ prerelease —
+# иначе releases/latest/download/... вернёт 404). Пример:
+#   gh release upload connectors-v1 dist/telegram.zip dist/manifest.json --clobber
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p dist
@@ -33,10 +36,26 @@ build_whatsapp() {
   echo "  ✓ $(du -h dist/whatsapp.zip | cut -f1) zip"
 }
 
+build_manifest() {
+  echo "▶ manifest.json (карта версий коннекторов)"
+  local entries=""
+  for dir in telegram whatsapp; do
+    local cjson="$dir/connector.json"
+    [ -f "$cjson" ] || continue
+    local ver
+    ver=$(python3 -c "import json,sys; print(json.load(open('$cjson'))['version'])")
+    [ -n "$entries" ] && entries="$entries,"
+    entries="$entries\"$dir\": \"$ver\""
+  done
+  printf '{%s}\n' "$entries" > dist/manifest.json
+  echo "  ✓ dist/manifest.json: $(cat dist/manifest.json)"
+}
+
 case "$WHAT" in
   telegram) build_telegram ;;
   whatsapp) build_whatsapp ;;
   all)      build_telegram; build_whatsapp ;;
   *) echo "Неизвестный коннектор: $WHAT (telegram|whatsapp|all)"; exit 1 ;;
 esac
+build_manifest
 echo "Готово. Ассеты в dist/."
