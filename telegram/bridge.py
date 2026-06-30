@@ -233,12 +233,81 @@ async def handle_contacts_search(request):
         return web.json_response({'error': str(e)}, status=500)
 
 
+def _entity_chat_brief(entity):
+    """Краткая карточка чата в форме /chats для произвольной entity (#419).
+    Используется для результатов server-side поиска, где у нас нет Dialog-обёртки
+    (нет last message / unread) — это discovery, не лента, поэтому поля-метаданные нулевые."""
+    if isinstance(entity, User):
+        return {
+            'id': entity_to_chat_id(entity),
+            'name': entity_name(entity),
+            'isGroup': False,
+            'isChannel': False,
+            'unreadCount': 0,
+            'lastMessage': '',
+            'timestamp': 0,
+        }
+    is_group = isinstance(entity, Chat) or (isinstance(entity, Channel) and getattr(entity, 'megagroup', False))
+    is_channel = isinstance(entity, Channel) and not getattr(entity, 'megagroup', False)
+    return {
+        'id': entity_to_chat_id(entity),
+        'name': (getattr(entity, 'title', '') or entity_name(entity)),
+        'isGroup': is_group,
+        'isChannel': is_channel,
+        'unreadCount': 0,
+        'lastMessage': '',
+        'timestamp': 0,
+    }
+
+
+async def _search_chats(q, limit):
+    """Server-side поиск чата по имени (#419): contacts.SearchRequest заставляет САМ Telegram
+    искать по названию/username среди людей, групп и каналов — включая чаты ВНЕ топ-N по
+    свежести и из архива (то, что get_dialogs с любым limit не гарантирует). my_results —
+    совпадения среди СВОИХ пиров (диалоги/контакты, в т.ч. архив), results — глобальные
+    публичные по username. Сущности приходят в res.users/res.chats, peer'ы — ссылки на них."""
+    res = await client(functions.contacts.SearchRequest(q=q, limit=max(1, limit)))
+    users_by_id = {u.id: u for u in res.users}
+    chats_by_id = {c.id: c for c in res.chats}
+
+    def resolve(peer):
+        if isinstance(peer, PeerUser):
+            return users_by_id.get(peer.user_id)
+        if isinstance(peer, PeerChat):
+            return chats_by_id.get(peer.chat_id)
+        if isinstance(peer, PeerChannel):
+            return chats_by_id.get(peer.channel_id)
+        return None
+
+    out = []
+    seen = set()
+    # my_results первыми (свои чаты приоритетнее глобальных публичных совпадений)
+    for peer in list(res.my_results) + list(res.results):
+        entity = resolve(peer)
+        if entity is None:
+            continue
+        cid = entity_to_chat_id(entity)
+        if cid in seen:
+            continue
+        seen.add(cid)
+        out.append(_entity_chat_brief(entity))
+    return out
+
+
 async def handle_chats(request):
     if not is_ready:
         return web.json_response({'error': 'Telegram not ready'}, status=503)
     try:
+        # q (#419): сервер-сайд поиск по имени через сам Telegram — находит ЛЮБОЙ чат
+        # (глубже топ-N, из архива, не-диалоговые публичные), а не только подгруженные диалоги.
+        q = (request.query.get('q', '') or '').strip()
         limit = int(request.query.get('limit', '50'))
-        dialogs = await client.get_dialogs(limit=limit)
+        if q:
+            # для поиска limit — это потолок числа результатов, дефолт мягкий
+            chats = await _search_chats(q, limit if limit > 0 else 50)
+            return web.json_response(chats)
+        # Листинг без q: get_dialogs с limit; limit<=0 → весь список диалогов (без потолка).
+        dialogs = await client.get_dialogs(limit=None if limit <= 0 else limit)
         chats = []
         for d in dialogs:
             chat_id = entity_to_chat_id(d.entity)
@@ -258,6 +327,8 @@ async def handle_chats(request):
             })
         chats.sort(key=lambda c: c['timestamp'], reverse=True)
         return web.json_response(chats)
+    except FloodWaitError as e:
+        return web.json_response({'error': f'FloodWait {e.seconds}s'}, status=429)
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500)
 
