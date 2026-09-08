@@ -25,11 +25,16 @@ production dependencies, builds native SQLite/PTY modules with the selected
 Node, includes upstream resources and license files, and creates a manifest.
 The known pnpm legacy-deploy self-reference is redirected to the deployed
 daemon; every other link escaping the payload is rejected.
+Before native installation, `production-lock.mjs` checks the deployed daemon
+dependency graph against the source lockfile: external resolutions and peer
+snapshots, workspace identities and production edges. A difference fails the
+build; source and deployed lockfile hashes are saved with the evidence.
 
 Successful output contains `payload/`, `component.json`, an architecture-named
 tar.gz and its SHA-256. `smoke.mjs` starts the payload with an isolated temporary
 HOME/data directory and a PATH without Node, verifies `/api/health` and the
-static UI, then stops it. Evidence remains outside staging even on failure.
+static UI, then stops its owned process group, including background CLI probes.
+It never stops processes by name or port. Evidence remains outside staging even on failure.
 Failed build staging is removed; a failed archive does not leave a candidate.
 
 ## Runtime boundary
@@ -43,7 +48,10 @@ only, does not open a browser, and resolves resources from its own package.
 This is not yet the Kelly installer or project adapter. No release is uploaded
 by these scripts. The manifest detects corruption, not publisher authenticity;
 the trusted download/compatibility contract belongs to the Kelly integration.
-macOS signing, Intel runtime smoke, project isolation, visual generation and
-the in-app user path remain release gates. The legacy pnpm deploy path still
-needs a locked production-closure reproducibility check before release; a
-pinned source commit alone is not proof of byte-identical dependency output.
+The initial ARM64 and x64 candidates passed native SQLite/PTY loading, daemon
+health and static UI smoke after archive relocation with access to upstream,
+the original output and Homebrew denied. x64 ran through Rosetta on an ARM Mac;
+this does not cover a separate Intel machine or Gatekeeper download behavior.
+macOS signing, clean-machine compatibility, project isolation, visual generation
+and the in-app user path remain release gates. Matching the production graph
+does not assert byte-identical archives or native compilation output.

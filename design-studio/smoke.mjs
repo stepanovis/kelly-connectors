@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { verifyPayload } from './package.mjs'
+import { stopOwnedProcessGroup } from './process-group.mjs'
 
 const payload = resolve(process.argv[2])
 const evidence = resolve(process.argv[3])
@@ -22,6 +23,7 @@ let output = ''
 let child
 try {
   child = spawn(join(payload, 'bin/node'), [join(payload, 'launcher.mjs')], {
+    detached: true,
     cwd: profile,
     env: { HOME: profile, PATH: '/usr/bin:/bin', TMPDIR: tmpdir(), OD_DATA_DIR: join(profile, 'data'), OD_PORT: String(port) },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -51,15 +53,7 @@ try {
   await writeFile(join(evidence, 'smoke.json'), `${JSON.stringify(result, null, 2)}\n`)
   console.log(JSON.stringify(result))
 } finally {
-  if (child?.pid && child.exitCode === null && child.signalCode === null) {
-    const exited = once(child, 'exit')
-    child.kill('SIGTERM')
-    await Promise.race([exited, delay(8000)])
-    if (child.exitCode === null && child.signalCode === null) {
-      child.kill('SIGKILL')
-      await exited
-    }
-  }
+  await stopOwnedProcessGroup(child)
   await writeFile(join(evidence, 'daemon.log'), output)
-  await rm(profile, { recursive: true, force: true })
+  await rm(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
 }

@@ -34,6 +34,8 @@ pnpm rebuild esbuild
 pnpm --filter '@open-design/daemon...' --filter '@open-design/web^...' --workspace-concurrency=2 -r run build
 env -u OD_WEB_OUTPUT_MODE pnpm --filter @open-design/web run build
 npm_config_ignore_scripts=true pnpm --filter @open-design/daemon deploy --legacy --prod "$PAYLOAD/apps/daemon"
+mkdir -p "$EVIDENCE"
+"$NODE" "$SCRIPT_DIR/production-lock.mjs" "$SOURCE" "$PAYLOAD" "$EVIDENCE/production-lock.json"
 for native in better-sqlite3 node-pty; do
   NATIVE_ROOT="$($NODE -e 'const path=require("node:path"); const resolver=require("node:module").createRequire(path.join(process.argv[1],"package.json")); process.stdout.write(path.dirname(resolver.resolve(process.argv[2]+"/package.json")));' "$PAYLOAD/apps/daemon" "$native")"
   npm run install --prefix "$NATIVE_ROOT"
