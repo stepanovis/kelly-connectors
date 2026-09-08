@@ -29,6 +29,10 @@ Before native installation, `production-lock.mjs` checks the deployed daemon
 dependency graph against the source lockfile: external resolutions and peer
 snapshots, workspace identities and production edges. A difference fails the
 build; source and deployed lockfile hashes are saved with the evidence.
+`managed-api.mjs` then applies the Kelly integration hooks to the exact pinned
+daemon bundle. Unknown input bytes or patch anchors fail the build. The hooks
+let the Kelly-owned host authorize HTTP requests and enclose every native model
+launch in its project policy without replacing the upstream generation engine.
 
 Successful output contains `payload/`, `component.json`, an architecture-named
 tar.gz and its SHA-256. `smoke.mjs` starts the payload with an isolated temporary
@@ -39,13 +43,19 @@ Failed build staging is removed; a failed archive does not leave a candidate.
 
 ## Runtime boundary
 
-Kelly invokes `payload/bin/node payload/launcher.mjs`. It must provide an
+The standalone packaging smoke invokes `payload/bin/node payload/launcher.mjs`. It must provide an
 absolute `OD_DATA_DIR` outside the versioned payload with an existing parent,
 and an available `OD_PORT` between 1024 and 65535. The launcher uses loopback
 only, does not open a browser, and resolves resources from its own package.
 `--check-native` verifies SQLite and PTY loading without starting the service.
 
-This is not yet the Kelly installer or project adapter. No release is uploaded
+The desktop integration instead starts its own `managed-host.mjs` with the
+payload's Node and an IPC channel. It requires managed runtime contract v1,
+adds a private HTTP capability and a per-project CLI sandbox, and fails closed
+if a candidate does not enforce its HTTP boundary. Host policy resources and
+their notices ship with Kelly; upstream runtime bytes ship in this component.
+
+No release is uploaded
 by these scripts. The manifest detects corruption, not publisher authenticity;
 the trusted download/compatibility contract belongs to the Kelly integration.
 The initial ARM64 and x64 candidates passed native SQLite/PTY loading, daemon
