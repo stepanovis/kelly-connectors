@@ -3,6 +3,6 @@
   "repository": "https://github.com/nexu-io/open-design.git",
   "upstreamCommit": "1bdc052283c16af1a1b4cad772d456ee728600c1",
   "upstreamVersion": "0.21.6",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "nodeVersion": "24.1.0"
 }

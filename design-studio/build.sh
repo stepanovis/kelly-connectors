@@ -32,7 +32,8 @@ cd "$SOURCE"
 pnpm install --frozen-lockfile --ignore-scripts --filter '@open-design/daemon...' --filter '@open-design/web...'
 pnpm rebuild esbuild
 pnpm --filter '@open-design/daemon...' --filter '@open-design/web^...' --workspace-concurrency=2 -r run build
-env -u OD_WEB_OUTPUT_MODE pnpm --filter @open-design/web run build
+mkdir -p "$EVIDENCE"
+"$NODE" "$SCRIPT_DIR/embedded-web.mjs" "$SOURCE" "$EVIDENCE/embedded-web.json"
 npm_config_ignore_scripts=true pnpm --filter @open-design/daemon deploy --legacy --prod "$PAYLOAD/apps/daemon"
 mkdir -p "$EVIDENCE"
 "$NODE" "$SCRIPT_DIR/production-lock.mjs" "$SOURCE" "$PAYLOAD" "$EVIDENCE/production-lock.json"
@@ -43,6 +44,7 @@ for native in better-sqlite3 node-pty; do
 done
 mkdir -p "$PAYLOAD/apps/web"
 cp -R apps/web/out "$PAYLOAD/apps/web/out"
+"$NODE" "$SCRIPT_DIR/embedded-web.mjs" --normalize-output "$PAYLOAD/apps/web/out"
 for resource in skills design-templates design-systems craft prompt-templates; do
   cp -R "$resource" "$PAYLOAD/resources/$resource"
 done

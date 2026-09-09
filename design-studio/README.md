@@ -65,3 +65,54 @@ this does not cover a separate Intel machine or Gatekeeper download behavior.
 macOS signing, clean-machine compatibility, project isolation, visual generation
 and the in-app user path remain release gates. Matching the production graph
 does not assert byte-identical archives or native compilation output.
+
+## Kelly embedded project UI (0.1.0-alpha.3)
+
+`embedded-web.patch` modifies the pinned React source before compilation.
+`embedded-web.json` pins both the patch and each original source file. The
+builder rejects unknown input; the wrapper reverses its patch after success or
+failure. Use a dedicated clean upstream checkout. A hard interruption may leave
+it dirty, which the next full build rejects. Do not reuse that checkout for a
+concurrent build. Verify the controls separately with:
+
+```sh
+node design-studio/verify-embedded-web.mjs "$UPSTREAM_CHECKOUT"
+node design-studio/embedded-web.mjs "$UPSTREAM_CHECKOUT" "$EVIDENCE/embedded-web.json"
+```
+
+The dedicated Kelly origin (`https://design-studio.localhost`) and initial
+project route enable this presentation mode for the lifetime of the view.
+Home, global project tabs/selector and the duplicate editable project heading
+are not mounted. The chat heading identifies the selected conversation; history,
+new conversation, collapse/restore, files, Code and Preview remain. The router
+rejects navigation outside the initial project; the existing desktop session
+and `StudioProjectSurface` still own authorization. Standalone origins retain
+upstream navigation. This is not a user preference because the hosting Kelly
+view already owns project selection.
+
+For this UI-only release, `rebuild-web-package.mjs` also accepts the verified
+released 0.1.0-alpha.2 native payloads. It checks their trusted manifest digests,
+all payload files, and the web-output digest from the completed build. It then
+replaces only `apps/web/out`, normalizes static file/directory modes to 0644/0755,
+writes the new manifest and archives the candidate. Normalizing modes prevents
+a build with umask 002 from failing integrity checks after extraction with 022.
+It asserts that every native/runtime/resource entry remains byte-identical.
+This is the artifact derivation used for alpha.3:
+
+```sh
+node design-studio/rebuild-web-package.mjs "$ALPHA2_PAYLOAD" \
+  "$UPSTREAM_CHECKOUT/apps/web/out" "$EVIDENCE/embedded-web.json" "$NEW_OUTPUT"
+```
+
+The source build remains available through `build.sh`; native compilation and
+tar metadata need not produce byte-identical archives. Record the exact archive
+size/SHA-256 and manifest SHA-256 in the desktop artifact catalog before release.
+The web build receipt binds the patch, upstream commit and actual static output.
+
+Desktop explicitly permits alpha.2 data for alpha.3 only when upstream commit
+and architecture match. Discovery offers a download; it never downloads or runs
+old executable bytes automatically. Explicit installation preserves data and the
+old active pointer until the new archive passes integrity/native checks. Unknown
+versions/commits/architectures and undeclared rollbacks remain rejected. Publish
+the component and verify its public archives before publishing the desktop that
+pins them. Task #1051 remains the record for review, integration and release.

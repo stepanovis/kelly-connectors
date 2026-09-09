@@ -1,0 +1,164 @@
+diff --git a/apps/web/src/App.tsx b/apps/web/src/App.tsx
+index 2fab62fa..af52623e 100644
+--- a/apps/web/src/App.tsx
++++ b/apps/web/src/App.tsx
+@@ -1,3 +1,4 @@
++import { KELLY_EMBEDDED_PROJECT } from './features/kellyEmbeddedProject';
+ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+ import { flushSync } from 'react-dom';
+ import { AnimatePresence, motion, MotionConfig } from 'motion/react';
+@@ -5496,10 +5497,11 @@ function AppInner() {
+     <>
+       <div
+         className={`workspace-shell workspace-shell--${clientType}`}
++        style={KELLY_EMBEDDED_PROJECT ? { gridTemplateRows: '0 minmax(0, 1fr)' } : undefined}
+         data-client-type={clientType}
+         data-host-platform={hostPlatform}
+       >
+-        <WorkspaceTabsBar
++        {!KELLY_EMBEDDED_PROJECT && <WorkspaceTabsBar
+           route={route}
+           // The ambient list may still be loading (or belong to a different
+           // selected Workspace) while a deep-linked project is already open.
+@@ -5517,13 +5519,13 @@ function AppInner() {
+           }
+           onboardingCompleted={config.onboardingCompleted === true}
+           identityScopeKey={workspaceTabsIdentityScopeKey}
+-        />
++        />}
+         {/* Avatar + credits keep their home-view spot (the top-right actions
+             host inside the tabs chrome) while a project tab is open, even
+             though EntryShell — the cluster's usual owner — is unmounted here.
+             Home and the other entry views mount theirs through EntryNavRail;
+             the routes are mutually exclusive, so exactly one is on screen. */}
+-        {route.kind === 'project' ? (
++        {!KELLY_EMBEDDED_PROJECT && route.kind === 'project' ? (
+           <WorkspaceTopRightAccountCluster
+             onOpenSettings={openSettings}
+             onSignedOut={handleActiveCloudSignOut}
+diff --git a/apps/web/src/components/ProjectView.tsx b/apps/web/src/components/ProjectView.tsx
+index 049c4281..c5b4e9c7 100644
+--- a/apps/web/src/components/ProjectView.tsx
++++ b/apps/web/src/components/ProjectView.tsx
+@@ -1,3 +1,4 @@
++import { KELLY_EMBEDDED_PROJECT } from '../features/kellyEmbeddedProject';
+ import {
+   startTransition,
+   useCallback,
+@@ -13040,7 +13041,7 @@ export function ProjectView({
+               the window top since the chrome row collapses). Unmounting
+               (workspace-focused mode, leaving the route) automatically
+               returns the strip to the chrome row. */}
+-          {!workspaceFocused ? (
++          {!workspaceFocused && !KELLY_EMBEDDED_PROJECT ? (
+             <div
+               className="split-chat-tabs-dock"
+               data-testid="workspace-tabs-dock"
+@@ -13325,10 +13326,16 @@ export function ProjectView({
+               }}
+               onBack={onBack}
+               onCollapse={() => setWorkspaceFocused(true)}
+-              collapseControlLifted={!workspaceFocused}
++              collapseControlLifted={!workspaceFocused && !KELLY_EMBEDDED_PROJECT}
+               backLabel={t('project.backToProjects')}
+               composerFooterAccessory={executionControls}
+-              projectHeader={(
++              projectHeader={KELLY_EMBEDDED_PROJECT ? (
++                <span className="chat-project-title-line" data-testid="kelly-conversation-title">
++                  <span className="title">
++                    {conversations.find((conversation) => conversation.id === activeConversationId)?.title || t('chat.untitledConversation')}
++                  </span>
++                </span>
++              ) : (
+                 <span className="chat-project-title-line">
+                   <span
+                     className={`title${projectMutationReadOnly ? ' readonly' : ' editable'}`}
+diff --git a/apps/web/src/features/kellyEmbeddedProject.ts b/apps/web/src/features/kellyEmbeddedProject.ts
+new file mode 100644
+index 00000000..5a28bb8d
+--- /dev/null
++++ b/apps/web/src/features/kellyEmbeddedProject.ts
+@@ -0,0 +1,22 @@
++// Kelly owns project selection. Its dedicated origin is installed by the
++// desktop session protocol; ordinary standalone Studio keeps its navigation.
++// This is a presentation mode, not an authorization boundary. The desktop
++// StudioProjectSurface continues to enforce every project/data request.
++import type { Route } from '../router';
++
++const initialLocation = typeof window === 'undefined' ? null : window.location;
++const initialParts = initialLocation?.pathname.split('/').filter(Boolean) ?? [];
++export const KELLY_EMBEDDED_PROJECT = initialLocation?.origin === 'https://design-studio.localhost'
++  && initialParts[0] === 'projects' && Boolean(initialParts[1]);
++const projectId = KELLY_EMBEDDED_PROJECT && initialParts[1] ? decodeURIComponent(initialParts[1]) : null;
++const initialConversationId = KELLY_EMBEDDED_PROJECT && initialParts[2] === 'conversations'
++  && initialParts[3] ? decodeURIComponent(initialParts[3]) : null;
++
++export function embeddedProjectRoute(route: Route): Route {
++  if (!projectId || (route.kind === 'project' && route.projectId === projectId)) return route;
++  return { kind: 'project', projectId, conversationId: initialConversationId, fileName: null };
++}
++
++export function allowsEmbeddedNavigation(route: Route): boolean {
++  return !projectId || (route.kind === 'project' && route.projectId === projectId);
++}
+diff --git a/apps/web/src/router.ts b/apps/web/src/router.ts
+index a7ed49a7..3714b516 100644
+--- a/apps/web/src/router.ts
++++ b/apps/web/src/router.ts
+@@ -5,6 +5,7 @@
+ 
+ import { useSyncExternalStore } from 'react';
+ import { LIBRARY_UI_VISIBLE } from './features/libraryUi';
++import { embeddedProjectRoute, allowsEmbeddedNavigation } from './features/kellyEmbeddedProject';
+ 
+ // Entry-shell sub-views. The home/project landing renders one of three
+ // columns and each sub-view now owns a top-level path so the browser
+@@ -73,6 +74,10 @@ export type Route =
+   | { kind: 'community' };
+ 
+ export function parseRoute(pathname: string): Route {
++  return embeddedProjectRoute(parseStandaloneRoute(pathname));
++}
++
++function parseStandaloneRoute(pathname: string): Route {
+   const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean);
+   if (parts.length === 0) return { kind: 'home', view: 'home' };
+   if (parts[0] === 'onboarding') {
+@@ -421,6 +426,7 @@ interface NavigationOptions {
+ }
+ 
+ function commitNavigation(route: Route, opts: NavigationOptions = {}): void {
++  if (!allowsEmbeddedNavigation(route)) return;
+   const target = buildPath(route);
+   if (target === window.location.pathname) return;
+   const index = readHistoryIndex();
+diff --git a/apps/web/tests/kelly-embedded-navigation.test.ts b/apps/web/tests/kelly-embedded-navigation.test.ts
+new file mode 100644
+index 00000000..95b15b80
+--- /dev/null
++++ b/apps/web/tests/kelly-embedded-navigation.test.ts
+@@ -0,0 +1,24 @@
++// @vitest-environment jsdom
++// @vitest-environment-options {"url":"https://design-studio.localhost/projects/project-a/conversations/chat-a"}
++import { describe, expect, it } from 'vitest';
++import { navigate, parseRoute } from '../src/router';
++
++describe('Kelly embedded project navigation', () => {
++  it('keeps Home, global project creation and foreign projects out of the embedded route', () => {
++    for (const pathname of ['/', '/projects', '/projects/project-b', '/settings', '/marketplace']) {
++      expect(parseRoute(pathname)).toEqual({ kind: 'project', projectId: 'project-a', conversationId: 'chat-a', fileName: null });
++    }
++  });
++  it('preserves conversation and file routes inside the current project', () => {
++    expect(parseRoute('/projects/project-a/conversations/chat-b/files/proof.html')).toEqual({ kind: 'project', projectId: 'project-a', conversationId: 'chat-b', fileName: 'proof.html' });
++  });
++  it('does not commit global navigation after switching conversations', async () => {
++    navigate({ kind: 'project', projectId: 'project-a', conversationId: 'chat-b', fileName: null });
++    await Promise.resolve();
++    expect(location.pathname).toBe('/projects/project-a/conversations/chat-b');
++    navigate({ kind: 'home', view: 'home' });
++    navigate({ kind: 'project', projectId: 'project-b', conversationId: null, fileName: null });
++    await Promise.resolve();
++    expect(location.pathname).toBe('/projects/project-a/conversations/chat-b');
++  });
++});
