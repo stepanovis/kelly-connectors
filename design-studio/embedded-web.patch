@@ -1,5 +1,5 @@
 diff --git a/apps/web/src/App.tsx b/apps/web/src/App.tsx
-index 2fab62fa..af52623e 100644
+index 2fab62fa..bc7d74b1 100644
 --- a/apps/web/src/App.tsx
 +++ b/apps/web/src/App.tsx
 @@ -1,3 +1,4 @@
@@ -7,7 +7,50 @@ index 2fab62fa..af52623e 100644
  import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
  import { flushSync } from 'react-dom';
  import { AnimatePresence, motion, MotionConfig } from 'motion/react';
-@@ -5496,10 +5497,11 @@ function AppInner() {
+@@ -2766,18 +2767,19 @@ function AppInner() {
+   );
+ 
+   const handleAgentChange = useCallback(
+-    (agentId: string) => {
++    async (agentId: string) => {
+       const next = { ...latestPersistedConfigRef.current, agentId };
++      if (KELLY_EMBEDDED_PROJECT) await syncConfigToDaemon(next, { throwOnError: true });
+       latestPersistedConfigRef.current = next;
+       saveConfig(next);
+-      void syncConfigToDaemon(next);
++      if (!KELLY_EMBEDDED_PROJECT) void syncConfigToDaemon(next);
+       setConfig(next);
+     },
+     [],
+   );
+ 
+   const handleAgentModelChange = useCallback(
+-    (agentId: string, choice: { model?: string; reasoning?: string; serviceTier?: string }) => {
++    async (agentId: string, choice: { model?: string; reasoning?: string; serviceTier?: string }) => {
+       const current = latestPersistedConfigRef.current;
+       const prev = current.agentModels?.[agentId] ?? {};
+       const merged = mergeAgentModelChoice(prev, choice);
+@@ -2786,9 +2788,10 @@ function AppInner() {
+         [agentId]: merged,
+       };
+       const next = { ...current, agentModels: nextAgentModels };
++      if (KELLY_EMBEDDED_PROJECT) await syncConfigToDaemon(next, { throwOnError: true });
+       latestPersistedConfigRef.current = next;
+       saveConfig(next);
+-      void syncConfigToDaemon(next);
++      if (!KELLY_EMBEDDED_PROJECT) void syncConfigToDaemon(next);
+       setConfig(next);
+     },
+     [],
+@@ -5352,6 +5355,7 @@ function AppInner() {
+           routeConversationId={route.conversationId ?? null}
+           config={config}
+           agents={agents}
++          agentsLoading={agentsLoading}
+           skills={enabledFunctionalSkills}
+           designTemplates={designTemplates}
+           designSystems={designSystems}
+@@ -5496,10 +5500,11 @@ function AppInner() {
      <>
        <div
          className={`workspace-shell workspace-shell--${clientType}`}
@@ -20,7 +63,7 @@ index 2fab62fa..af52623e 100644
            route={route}
            // The ambient list may still be loading (or belong to a different
            // selected Workspace) while a deep-linked project is already open.
-@@ -5517,13 +5519,13 @@ function AppInner() {
+@@ -5517,13 +5522,13 @@ function AppInner() {
            }
            onboardingCompleted={config.onboardingCompleted === true}
            identityScopeKey={workspaceTabsIdentityScopeKey}
@@ -36,8 +79,207 @@ index 2fab62fa..af52623e 100644
            <WorkspaceTopRightAccountCluster
              onOpenSettings={openSettings}
              onSignedOut={handleActiveCloudSignOut}
+diff --git a/apps/web/src/components/AvatarMenu.tsx b/apps/web/src/components/AvatarMenu.tsx
+index f736e86f..cc823eb8 100644
+--- a/apps/web/src/components/AvatarMenu.tsx
++++ b/apps/web/src/components/AvatarMenu.tsx
+@@ -1,4 +1,5 @@
+ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
++import { KELLY_EMBEDDED_PROJECT } from '../features/kellyEmbeddedProject';
+ import { createPortal } from 'react-dom';
+ import { getResolvedDeviceId } from '../analytics/client';
+ import { amrHandoffDeviceId, attributedAmrUrl, recordAmrEntry } from '../analytics/amr-attribution';
+@@ -47,13 +48,14 @@ import {
+ interface Props {
+   config: AppConfig;
+   agents: AgentInfo[];
++  agentsLoading?: boolean;
+   daemonLive: boolean;
+   onModeChange: (mode: ExecMode) => void;
+-  onAgentChange: (id: string) => void;
++  onAgentChange: (id: string) => void | Promise<void>;
+   onAgentModelChange: (
+     id: string,
+     choice: { model?: string; reasoning?: string; serviceTier?: string },
+-  ) => void;
++  ) => void | Promise<void>;
+   onApiModelChange?: (model: string) => void;
+   providerModelsCache?: Record<string, ProviderModelOption[]>;
+   onOpenSettings: (section?: 'execution') => void;
+@@ -91,6 +93,8 @@ interface Props {
+ export function AvatarMenu({
+   config,
+   agents,
++  agentsLoading = false,
++  onRefreshAgents,
+   onAgentChange,
+   onAgentModelChange,
+   onApiModelChange,
+@@ -130,6 +134,19 @@ export function AvatarMenu({
+       : undefined,
+   );
+   const [open, setOpen] = useState(false);
++  const [executionSettingsOpen, setExecutionSettingsOpen] = useState(false);
++  const [selectionSaving, setSelectionSaving] = useState(false);
++  const [selectionError, setSelectionError] = useState(false);
++  const selectionPending = useRef(false);
++  async function saveSelection(change: () => void | Promise<void>, complete: () => void) {
++    if (selectionPending.current) return;
++    selectionPending.current = true;
++    setSelectionSaving(true);
++    setSelectionError(false);
++    try { await change(); complete(); }
++    catch { setSelectionError(true); }
++    finally { selectionPending.current = false; setSelectionSaving(false); }
++  }
+   // Toggle that reports the closed→open transition (for analytics) without
+   // firing on close.
+   function toggleOpen() {
+@@ -158,6 +175,16 @@ export function AvatarMenu({
+   const triggerRef = useRef<HTMLButtonElement | null>(null);
+   const [popoverStyle, setPopoverStyle] = useState<CSSProperties | null>(null);
+ 
++  useEffect(() => {
++    if (!open) setExecutionSettingsOpen(false);
++    if (open && executionSettingsOpen) {
++      popoverRef.current?.scrollTo?.(0, 0);
++      popoverRef.current?.querySelector<HTMLButtonElement>(
++        '[data-testid="kelly-execution-settings"] button:not(:disabled)',
++      )?.focus();
++    }
++  }, [open, executionSettingsOpen]);
++
+   useEffect(() => {
+     if (!open) return;
+     const onClick = (e: MouseEvent) => {
+@@ -540,7 +567,41 @@ export function AvatarMenu({
+           aria-label={t('avatar.title')}
+           style={popoverStyle}
+         >
+-          {config.mode === 'daemon' ? (
++          {KELLY_EMBEDDED_PROJECT && executionSettingsOpen ? (
++            <div className="avatar-model-section" id="kelly-execution-settings" data-testid="kelly-execution-settings">
++              <div className="avatar-select-row">
++                <span className="avatar-select-label">{t('avatar.codeAgent')}</span>
++                <div className="avatar-model-list" role="group" aria-label={t('avatar.codeAgent')}>
++                  {agentsLoading ? <div role="status">{t('common.loading')}</div> : null}
++                  {!agentsLoading && agents.length === 0 ? <div role="alert">{t('avatar.noAgentSelected')}</div> : null}
++                  {!agentsLoading && agents.length === 0 ? <button type="button" className="avatar-item" onClick={onRefreshAgents}>{t('avatar.rescan')}</button> : null}
++                  {agents.map((agent) => (
++                    <button
++                      key={agent.id}
++                      type="button"
++                      className={`avatar-model-option${agent.id === config.agentId ? ' is-active' : ''}`}
++                      data-testid={`kelly-agent-option-${agent.id}`}
++                      aria-pressed={agent.id === config.agentId}
++                      disabled={!agent.available || selectionSaving}
++                      title={!agent.available ? t('settings.testAgentMissing', { agentName: agent.name }) : agent.name}
++                      onClick={() => {
++                        void saveSelection(() => onAgentChange(agent.id), () => {
++                          setExecutionSettingsOpen(false);
++                          triggerRef.current?.focus();
++                        });
++                      }}
++                    >
++                      <AgentIcon id={agent.id} size={16} />
++                      <span className="avatar-model-option-label">
++                        {agent.name}{!agent.available ? ` (${t('connectors.unavailable')})` : ''}
++                      </span>
++                      {agent.id === config.agentId ? <RemixIcon name="check-line" size={14} /> : null}
++                    </button>
++                  ))}
++                </div>
++              </div>
++            </div>
++          ) : config.mode === 'daemon' ? (
+             <>
+               {hasSelectableModels && currentAgent ? (
+                 <div className="avatar-model-section">
+@@ -591,15 +652,21 @@ export function AvatarMenu({
+                                 locked ? ' is-locked' : ''
+                               }`}
+                               data-testid={`avatar-model-option-${model.id}`}
++                              disabled={KELLY_EMBEDDED_PROJECT && selectionSaving}
+                               onClick={() => {
+                                 if (locked) {
+                                   openAmrUpgrade();
+                                   return;
+                                 }
+-                                onAgentModelChange(currentAgent.id, {
++                                const change = () => onAgentModelChange(currentAgent.id, {
+                                   model: model.id,
+                                   serviceTier: undefined,
+                                 });
++                                if (KELLY_EMBEDDED_PROJECT) {
++                                  void saveSelection(change, () => setOpen(false));
++                                  return;
++                                }
++                                change();
+                                 // Selection made — dismiss the popover right away.
+                                 setOpen(false);
+                               }}
+@@ -654,10 +721,11 @@ export function AvatarMenu({
+                       <select
+                         className="avatar-select"
+                         value={currentReasoningId}
++                        disabled={KELLY_EMBEDDED_PROJECT && selectionSaving}
+                         onChange={(event) =>
+-                          onAgentModelChange(currentAgent.id, {
+-                            reasoning: event.target.value,
+-                          })
++                          KELLY_EMBEDDED_PROJECT
++                            ? void saveSelection(() => onAgentModelChange(currentAgent.id, { reasoning: event.target.value }), () => {})
++                            : onAgentModelChange(currentAgent.id, { reasoning: event.target.value })
+                         }
+                       >
+                         {activeReasoningOptions.map((option) => (
+@@ -676,14 +744,13 @@ export function AvatarMenu({
+                       <select
+                         className="avatar-select"
+                         value={currentServiceTierId}
+-                        onChange={(event) =>
+-                          onAgentModelChange(currentAgent.id, {
+-                            serviceTier:
+-                              event.target.value === 'default'
+-                                ? undefined
+-                                : event.target.value,
+-                          })
+-                        }
++                        disabled={KELLY_EMBEDDED_PROJECT && selectionSaving}
++                        onChange={(event) => {
++                          const serviceTier = event.target.value === 'default' ? undefined : event.target.value;
++                          const change = () => onAgentModelChange(currentAgent.id, { serviceTier });
++                          if (KELLY_EMBEDDED_PROJECT) void saveSelection(change, () => {});
++                          else change();
++                        }}
+                       >
+                         <option value="default">{t('common.default')}</option>
+                         {currentServiceTierOptions.map((tier) => (
+@@ -808,6 +875,8 @@ export function AvatarMenu({
+             ) : null
+           ) : null}
+ 
++          {KELLY_EMBEDDED_PROJECT && selectionSaving ? <div role="status">{t('settings.autosaveSaving')}</div> : null}
++          {KELLY_EMBEDDED_PROJECT && selectionError ? <div role="alert">{t('settings.autosaveError')}</div> : null}
+           {/* The one link out to 设置 → 执行. #5517's popover has no such entry,
+               but #5517 also never moved CLI switching out of this popover — we
+               did (2026-07-21), so without this the place that switching moved TO
+@@ -818,7 +887,13 @@ export function AvatarMenu({
+             type="button"
+             className="avatar-item avatar-item--pinned"
+             data-testid="avatar-open-execution-settings"
++            aria-expanded={KELLY_EMBEDDED_PROJECT ? executionSettingsOpen : undefined}
++            aria-controls={KELLY_EMBEDDED_PROJECT ? 'kelly-execution-settings' : undefined}
+             onClick={() => {
++              if (KELLY_EMBEDDED_PROJECT) {
++                setExecutionSettingsOpen((value) => !value);
++                return;
++              }
+               setOpen(false);
+               onOpenSettings('execution');
+             }}
 diff --git a/apps/web/src/components/ProjectView.tsx b/apps/web/src/components/ProjectView.tsx
-index 049c4281..c5b4e9c7 100644
+index 049c4281..fd365f43 100644
 --- a/apps/web/src/components/ProjectView.tsx
 +++ b/apps/web/src/components/ProjectView.tsx
 @@ -1,3 +1,4 @@
@@ -45,7 +287,67 @@ index 049c4281..c5b4e9c7 100644
  import {
    startTransition,
    useCallback,
-@@ -13040,7 +13041,7 @@ export function ProjectView({
+@@ -807,6 +808,7 @@ interface Props {
+   routeConversationId?: string | null;
+   config: AppConfig;
+   agents: AgentInfo[];
++  agentsLoading?: boolean;
+   // Mentionable functional skills — already filtered by config.disabledSkills
+   // upstream, so this drives only the chat composer's @-picker scope. For
+   // resolving an existing project's `skillId` (which can also point at a
+@@ -821,11 +823,11 @@ interface Props {
+   designSystems: DesignSystemSummary[];
+   daemonLive: boolean;
+   onModeChange: (mode: AppConfig['mode']) => void;
+-  onAgentChange: (id: string) => void;
++  onAgentChange: (id: string) => void | Promise<void>;
+   onAgentModelChange: (
+     id: string,
+     choice: { model?: string; reasoning?: string; serviceTier?: string },
+-  ) => void;
++  ) => void | Promise<void>;
+   onApiModelChange?: (model: string) => void;
+   onRefreshAgents: () => void;
+   onOpenSettings: (section?: SettingsSection) => void;
+@@ -2114,6 +2116,7 @@ export function ProjectView({
+   routeConversationId = null,
+   config,
+   agents,
++  agentsLoading = false,
+   skills,
+   designTemplates,
+   designSystems,
+@@ -12946,6 +12949,7 @@ export function ProjectView({
+       <AvatarMenu
+         config={config}
+         agents={agents}
++        agentsLoading={agentsLoading}
+         daemonLive={daemonLive}
+         onModeChange={onModeChange}
+         onOpen={() => {
+@@ -12964,9 +12968,9 @@ export function ProjectView({
+             agent_id: id,
+             ...(project?.id ? { project_id: project.id } : {}),
+           });
+-          onAgentChange(id);
++          return onAgentChange(id);
+         }}
+-        onAgentModelChange={(agentId, choice) => {
++        onAgentModelChange={async (agentId, choice) => {
+           trackComposerBarClick(analytics.track, {
+             page_name: 'chat_panel',
+             area: 'chat_composer',
+@@ -12975,7 +12979,8 @@ export function ProjectView({
+             ...(choice?.model ? { model_id: choice.model } : {}),
+             ...(project?.id ? { project_id: project.id } : {}),
+           });
+-          onAgentModelChange(agentId, choice);
++          const pendingChange = onAgentModelChange(agentId, choice);
++          if (KELLY_EMBEDDED_PROJECT) await pendingChange;
+           /*
+            * 「选完自动重跑」的那一半。只有确实是从报错卡那颗〔更换模型〕进来的
+            * 才会有待重跑的那一轮 —— 平时手动换模型不该无端重发。
+@@ -13040,7 +13045,7 @@ export function ProjectView({
                the window top since the chrome row collapses). Unmounting
                (workspace-focused mode, leaving the route) automatically
                returns the strip to the chrome row. */}
@@ -54,7 +356,7 @@ index 049c4281..c5b4e9c7 100644
              <div
                className="split-chat-tabs-dock"
                data-testid="workspace-tabs-dock"
-@@ -13325,10 +13326,16 @@ export function ProjectView({
+@@ -13325,10 +13330,16 @@ export function ProjectView({
                }}
                onBack={onBack}
                onCollapse={() => setWorkspaceFocused(true)}
@@ -132,6 +434,84 @@ index a7ed49a7..3714b516 100644
    const target = buildPath(route);
    if (target === window.location.pathname) return;
    const index = readHistoryIndex();
+diff --git a/apps/web/tests/components/AvatarMenu.kelly.test.tsx b/apps/web/tests/components/AvatarMenu.kelly.test.tsx
+new file mode 100644
+index 00000000..6dc6de54
+--- /dev/null
++++ b/apps/web/tests/components/AvatarMenu.kelly.test.tsx
+@@ -0,0 +1,72 @@
++// @vitest-environment jsdom
++// @vitest-environment-options {"url":"https://design-studio.localhost/projects/project-a/conversations/chat-a"}
++import { useState } from 'react';
++import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
++import { afterEach, expect, it, vi } from 'vitest';
++import { AvatarMenu } from '../../src/components/AvatarMenu';
++import { DEFAULT_CONFIG } from '../../src/state/config';
++import type { AgentInfo } from '../../src/types';
++vi.mock('../../src/i18n', () => ({ useT: () => (key: string) => key }));
++vi.mock('../../src/collab/useWorkspaceContext', () => ({
++  useWorkspaceContext: () => ({ context: null, loading: false }),
++  useWorkspaceBillingResponse: () => null,
++  workspaceBillingSnapshotForContext: () => null,
++}));
++const agents: AgentInfo[] = [
++  { id: 'claude', name: 'Claude Code', bin: 'claude', available: true, models: [{id: 'claude-test', label: 'Claude test'}] },
++  { id: 'codex', name: 'Codex CLI', bin: 'codex', available: true, models: [{id: 'gpt-test', label: 'GPT test'}] },
++  { id: 'missing', name: 'Missing CLI', bin: 'missing', available: false },
++];
++afterEach(cleanup);
++it('opens project execution settings, switches the model catalogue, and preserves the composer', async () => {
++  const onOpenSettings = vi.fn();
++  function Project() {
++    const [agentId, setAgentId] = useState('claude');
++    return <><textarea defaultValue="unsent draft" aria-label="draft" /><AvatarMenu
++      config={{...DEFAULT_CONFIG, mode: 'daemon', agentId}} agents={agents} daemonLive
++      onAgentChange={setAgentId} onAgentModelChange={vi.fn()} onModeChange={vi.fn()}
++      onOpenSettings={onOpenSettings} onRefreshAgents={vi.fn()} /></>;
++  }
++  render(<Project />);
++  const draft = screen.getByLabelText('draft');
++  fireEvent.click(screen.getByTestId('avatar-agent-trigger'));
++  fireEvent.click(screen.getByTestId('avatar-open-execution-settings'));
++  expect(screen.getByTestId('kelly-execution-settings')).toBeTruthy();
++  expect(document.activeElement).toBe(screen.getByTestId('kelly-agent-option-claude'));
++  expect((screen.getByTestId('kelly-agent-option-missing') as HTMLButtonElement).disabled).toBe(true);
++  fireEvent.click(screen.getByTestId('kelly-agent-option-codex'));
++  expect(await screen.findByTestId('avatar-model-option-gpt-test')).toBeTruthy();
++  expect(screen.queryByTestId('avatar-model-option-claude-test')).toBeNull();
++  expect(screen.getByLabelText('draft')).toBe(draft);
++  expect((draft as HTMLTextAreaElement).value).toBe('unsent draft');
++  expect(location.pathname).toBe('/projects/project-a/conversations/chat-a');
++  expect(onOpenSettings).not.toHaveBeenCalled();
++  fireEvent.click(screen.getByTestId('avatar-open-execution-settings'));
++  expect(screen.getByTestId('kelly-agent-option-codex').getAttribute('aria-pressed')).toBe('true');
++  fireEvent.keyDown(document, {key: 'Escape'});
++  expect(screen.queryByTestId('kelly-execution-settings')).toBeNull();
++  expect(document.activeElement).toBe(screen.getByTestId('avatar-agent-trigger'));
++});
++
++it('shows loading and a failed save, retains the old choice, and permits a single retry', async () => {
++  let finish: (() => void) | undefined;
++  const change = vi.fn().mockRejectedValueOnce(new Error('fixture refusal'))
++    .mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
++  const props = {config: {...DEFAULT_CONFIG, mode: 'daemon' as const, agentId: 'claude'}, agents, daemonLive:true,
++    onAgentChange:change, onAgentModelChange:vi.fn(), onModeChange:vi.fn(), onOpenSettings:vi.fn(), onRefreshAgents:vi.fn()};
++  const ui = render(<AvatarMenu {...props} agentsLoading />);
++  fireEvent.click(screen.getByTestId('avatar-agent-trigger'));
++  fireEvent.click(screen.getByTestId('avatar-open-execution-settings'));
++  expect(screen.getByRole('status').textContent).toBe('common.loading');
++  ui.rerender(<AvatarMenu {...props} />);
++  fireEvent.click(screen.getByTestId('kelly-agent-option-codex'));
++  expect((await screen.findByRole('alert')).textContent).toBe('settings.autosaveError');
++  expect(screen.getByTestId('kelly-agent-option-claude').getAttribute('aria-pressed')).toBe('true');
++  fireEvent.click(screen.getByTestId('kelly-agent-option-codex'));
++  expect(screen.getByRole('status').textContent).toBe('settings.autosaveSaving');
++  fireEvent.click(screen.getByTestId('kelly-agent-option-codex'));
++  expect(change).toHaveBeenCalledTimes(2);
++  finish!();
++  await waitFor(() => expect(screen.queryByTestId('kelly-execution-settings')).toBeNull());
++  expect(screen.queryByRole('alert')).toBeNull();
++});
 diff --git a/apps/web/tests/kelly-embedded-navigation.test.ts b/apps/web/tests/kelly-embedded-navigation.test.ts
 new file mode 100644
 index 00000000..95b15b80

@@ -80,7 +80,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   } else {
     if (!source || !evidence) throw new Error('Usage: embedded-web.mjs <clean-pinned-source> <evidence.json>')
     await withEmbeddedWeb(resolve(source), async provenance => {
-      await command(source, ['--filter', '@open-design/web', 'test', 'tests/kelly-embedded-navigation.test.ts', 'tests/router.test.ts', 'tests/router.navigate.test.tsx', 'tests/components/WorkspaceTabsBar.test.tsx', 'tests/components/ChatPane.conversation-title.test.tsx'])
+      await command(source, ['--filter', '@open-design/web', 'test', 'tests/kelly-embedded-navigation.test.ts', 'tests/components/AvatarMenu.kelly.test.tsx', 'tests/components/AvatarMenu.test.tsx', 'tests/router.test.ts', 'tests/router.navigate.test.tsx', 'tests/components/WorkspaceTabsBar.test.tsx', 'tests/components/ChatPane.conversation-title.test.tsx'])
       await command(source, ['--filter', '@open-design/web', 'run', 'build'])
       await writeFile(evidence, JSON.stringify({ ...provenance, webSha256: await webDigest(join(source, 'apps/web/out')) }, null, 2) + '\n')
     })

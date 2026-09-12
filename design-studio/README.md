@@ -66,7 +66,7 @@ macOS signing, clean-machine compatibility, project isolation, visual generation
 and the in-app user path remain release gates. Matching the production graph
 does not assert byte-identical archives or native compilation output.
 
-## Kelly embedded project UI (0.1.0-alpha.3)
+## Kelly embedded project UI (0.1.0-alpha.4)
 
 `embedded-web.patch` modifies the pinned React source before compilation.
 `embedded-web.json` pins both the patch and each original source file. The
@@ -91,7 +91,7 @@ upstream navigation. This is not a user preference because the hosting Kelly
 view already owns project selection.
 
 For this UI-only release, `rebuild-web-package.mjs` also accepts the verified
-released 0.1.0-alpha.2 native payloads. It checks their trusted manifest digests,
+released 0.1.0-alpha.2 or 0.1.0-alpha.3 native payloads. It checks their trusted manifest digests,
 all payload files, and the web-output digest from the completed build. It then
 replaces only `apps/web/out`, normalizes static file/directory modes to 0644/0755,
 writes the new manifest and archives the candidate. Normalizing modes prevents
@@ -109,10 +109,30 @@ tar metadata need not produce byte-identical archives. Record the exact archive
 size/SHA-256 and manifest SHA-256 in the desktop artifact catalog before release.
 The web build receipt binds the patch, upstream commit and actual static output.
 
-Desktop explicitly permits alpha.2 data for alpha.3 only when upstream commit
+Desktop explicitly permits alpha.2 and alpha.3 data for alpha.4 only when upstream commit
 and architecture match. Discovery offers a download; it never downloads or runs
 old executable bytes automatically. Explicit installation preserves data and the
 old active pointer until the new archive passes integrity/native checks. Unknown
 versions/commits/architectures and undeclared rollbacks remain rejected. Publish
 the component and verify its public archives before publishing the desktop that
 pins them. Task #1051 remains the record for review, integration and release.
+
+## Project execution settings
+
+In the Kelly embedded origin, the model menu's existing execution-settings
+action expands an in-place CLI chooser. It uses the existing `onAgentChange`
+callback and `/api/app-config` project preferences, then returns to that CLI's
+model list. The new selection is applied after the project preference write
+succeeds. A rejected write retains the old choice and displays an error;
+retry stays in the same menu. Saving disables duplicate choices, and catalogue
+loading is visible. Unavailable CLIs are disabled. Mouse and Enter activate the same
+buttons; Escape closes the popover and returns focus. The project view stays
+mounted, retaining its conversation, composer and files. Standalone Studio
+still opens its ordinary execution settings page. Route and API authorization
+are unchanged. No shared daemon settings or credentials are edited.
+
+`AvatarMenu.kelly.test.tsx` covers this entry, switching, disabled choices and
+focus; existing standalone AvatarMenu and embedded-router tests run alongside
+it. Native desktop acceptance is in `scripts/verify-design-studio-settings.ts`
+of the Kelly repository. Its optional catalogue replay tests UI selection, not
+model execution or account access.
