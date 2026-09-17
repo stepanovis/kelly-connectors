@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "upstreamCommit": "1bdc052283c16af1a1b4cad772d456ee728600c1",
-  "patchSha256": "4708017c61f78d79845d0ff76e3e1c4a1862c3111cd4391abc999f5d25ea844f",
+  "patchSha256": "76326c642aea7fd3aa689903cbb3213b84d02c2893252d1a8ce3d5be20120d69",
   "sources": {
     "apps/web/src/App.tsx": "183c0774e43183d12ba16072d83cc7ab7c946ca8ba3ab8bd5c66178507087dfd",
     "apps/web/src/components/ProjectView.tsx": "26c126c2eed3cbacc28c4b7ec0b2a57357219bfb100ab974443e74dc0aa4b64f",

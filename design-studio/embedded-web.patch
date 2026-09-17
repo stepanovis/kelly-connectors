@@ -279,15 +279,16 @@ index f736e86f..cc823eb8 100644
                onOpenSettings('execution');
              }}
 diff --git a/apps/web/src/components/ProjectView.tsx b/apps/web/src/components/ProjectView.tsx
-index 049c4281..fd365f43 100644
+index 049c4281..871d2bfe 100644
 --- a/apps/web/src/components/ProjectView.tsx
 +++ b/apps/web/src/components/ProjectView.tsx
-@@ -1,3 +1,4 @@
+@@ -1,3 +1,5 @@
 +import { KELLY_EMBEDDED_PROJECT } from '../features/kellyEmbeddedProject';
++import { createKellyPanelRatio } from '../features/kellyPanelRatio';
  import {
    startTransition,
    useCallback,
-@@ -807,6 +808,7 @@ interface Props {
+@@ -807,6 +809,7 @@ interface Props {
    routeConversationId?: string | null;
    config: AppConfig;
    agents: AgentInfo[];
@@ -295,7 +296,7 @@ index 049c4281..fd365f43 100644
    // Mentionable functional skills — already filtered by config.disabledSkills
    // upstream, so this drives only the chat composer's @-picker scope. For
    // resolving an existing project's `skillId` (which can also point at a
-@@ -821,11 +823,11 @@ interface Props {
+@@ -821,11 +824,11 @@ interface Props {
    designSystems: DesignSystemSummary[];
    daemonLive: boolean;
    onModeChange: (mode: AppConfig['mode']) => void;
@@ -309,7 +310,7 @@ index 049c4281..fd365f43 100644
    onApiModelChange?: (model: string) => void;
    onRefreshAgents: () => void;
    onOpenSettings: (section?: SettingsSection) => void;
-@@ -2114,6 +2116,7 @@ export function ProjectView({
+@@ -2114,6 +2117,7 @@ export function ProjectView({
    routeConversationId = null,
    config,
    agents,
@@ -317,7 +318,80 @@ index 049c4281..fd365f43 100644
    skills,
    designTemplates,
    designSystems,
-@@ -12946,6 +12949,7 @@ export function ProjectView({
+@@ -3143,6 +3147,7 @@ export function ProjectView({
+   const amrGatePausedQueueConversationsRef = useRef<Set<string>>(new Set());
+   const [autoAuditRepairSeed, setAutoAuditRepairSeed] =
+     useState<{ id: string; value: string } | null>(null);
++  const kellyPanelRatio = useMemo(() => KELLY_EMBEDDED_PROJECT ? createKellyPanelRatio() : null, [project.id]);
+   const initialChatPanelWidth = useMemo(readSavedChatPanelWidth, []);
+   const [chatPanelWidth, setChatPanelWidth] = useState(initialChatPanelWidth.width);
+   const [chatPanelMaxWidth, setChatPanelMaxWidth] = useState(FALLBACK_MAX_CHAT_PANEL_WIDTH);
+@@ -11954,9 +11959,12 @@ export function ProjectView({
+     if (saveFinalWidth && resized) {
+       const finalWidth = renderPreferredChatPanelWidth(preferredChatPanelWidthRef.current);
+       chatPanelWidthCustomizedRef.current = true;
+-      saveChatPanelWidth(finalWidth);
++      if (kellyPanelRatio && splitRef.current) {
++        void kellyPanelRatio.save(finalWidth, splitRef.current.clientWidth - SPLIT_RESIZE_HANDLE_WIDTH)
++          .catch(() => setProjectActionsToast({ message: 'Could not save Studio panel layout', details: null, tone: 'error' }));
++      } else saveChatPanelWidth(finalWidth);
+     }
+-  }, [renderPreferredChatPanelWidth]);
++  }, [renderPreferredChatPanelWidth, kellyPanelRatio]);
+ 
+   // `chatPanelWidthRef` and the `--project-chat-panel-width` DOM write are
+   // already kept in sync by `renderPreferredChatPanelWidth` (which sets the
+@@ -11981,23 +11989,29 @@ export function ProjectView({
+       chatPanelMaxWidthRef.current = nextMax;
+       setWorkspacePanelMinWidth(nextWorkspaceMin);
+       setChatPanelMaxWidth(nextMax);
+-      const preferredWidth = chatPanelWidthCustomizedRef.current
+-        ? preferredChatPanelWidthRef.current
+-        : defaultChatPanelWidthForSplit(splitWidth);
++      const preferredWidth = kellyPanelRatio?.width(splitWidth - SPLIT_RESIZE_HANDLE_WIDTH)
++        ?? (chatPanelWidthCustomizedRef.current
++          ? preferredChatPanelWidthRef.current
++          : defaultChatPanelWidthForSplit(splitWidth));
+       renderPreferredChatPanelWidth(preferredWidth, nextMax);
+     };
+ 
+     updateAllowedWidth();
++    let active = true;
++    if (kellyPanelRatio) {
++      void kellyPanelRatio.restore().then(() => { if (active) updateAllowedWidth(); })
++        .catch(() => { /* Keep the native default if settings cannot be read. */ });
++    }
+ 
+     if (typeof ResizeObserver !== 'undefined') {
+       const observer = new ResizeObserver(updateAllowedWidth);
+       observer.observe(split);
+-      return () => observer.disconnect();
++      return () => { active = false; observer.disconnect(); };
+     }
+ 
+     window.addEventListener('resize', updateAllowedWidth);
+-    return () => window.removeEventListener('resize', updateAllowedWidth);
+-  }, [renderPreferredChatPanelWidth]);
++    return () => { active = false; window.removeEventListener('resize', updateAllowedWidth); };
++  }, [renderPreferredChatPanelWidth, kellyPanelRatio]);
+ 
+   useEffect(() => () => finishChatPanelResize(false), [finishChatPanelResize]);
+ 
+@@ -12140,8 +12154,11 @@ export function ProjectView({
+     event.preventDefault();
+     const next = applyChatPanelWidth(nextWidth);
+     chatPanelWidthCustomizedRef.current = true;
+-    saveChatPanelWidth(next);
+-  }, [applyChatPanelWidth]);
++    if (kellyPanelRatio && split) {
++      void kellyPanelRatio.save(next, split.clientWidth - SPLIT_RESIZE_HANDLE_WIDTH)
++        .catch(() => setProjectActionsToast({ message: 'Could not save Studio panel layout', details: null, tone: 'error' }));
++    } else saveChatPanelWidth(next);
++  }, [applyChatPanelWidth, kellyPanelRatio]);
+ 
+   // Hand the pending prompt to ChatPane exactly once per project. The local
+   // project-scoped snapshot survives the conversation-id remount, while the
+@@ -12946,6 +12963,7 @@ export function ProjectView({
        <AvatarMenu
          config={config}
          agents={agents}
@@ -325,7 +399,7 @@ index 049c4281..fd365f43 100644
          daemonLive={daemonLive}
          onModeChange={onModeChange}
          onOpen={() => {
-@@ -12964,9 +12968,9 @@ export function ProjectView({
+@@ -12964,9 +12982,9 @@ export function ProjectView({
              agent_id: id,
              ...(project?.id ? { project_id: project.id } : {}),
            });
@@ -337,7 +411,7 @@ index 049c4281..fd365f43 100644
            trackComposerBarClick(analytics.track, {
              page_name: 'chat_panel',
              area: 'chat_composer',
-@@ -12975,7 +12979,8 @@ export function ProjectView({
+@@ -12975,7 +12993,8 @@ export function ProjectView({
              ...(choice?.model ? { model_id: choice.model } : {}),
              ...(project?.id ? { project_id: project.id } : {}),
            });
@@ -347,7 +421,7 @@ index 049c4281..fd365f43 100644
            /*
             * 「选完自动重跑」的那一半。只有确实是从报错卡那颗〔更换模型〕进来的
             * 才会有待重跑的那一轮 —— 平时手动换模型不该无端重发。
-@@ -13040,7 +13045,7 @@ export function ProjectView({
+@@ -13040,7 +13059,7 @@ export function ProjectView({
                the window top since the chrome row collapses). Unmounting
                (workspace-focused mode, leaving the route) automatically
                returns the strip to the chrome row. */}
@@ -356,7 +430,7 @@ index 049c4281..fd365f43 100644
              <div
                className="split-chat-tabs-dock"
                data-testid="workspace-tabs-dock"
-@@ -13325,10 +13330,16 @@ export function ProjectView({
+@@ -13325,10 +13344,16 @@ export function ProjectView({
                }}
                onBack={onBack}
                onCollapse={() => setWorkspaceFocused(true)}
@@ -402,6 +476,50 @@ index 00000000..5a28bb8d
 +
 +export function allowsEmbeddedNavigation(route: Route): boolean {
 +  return !projectId || (route.kind === 'project' && route.projectId === projectId);
++}
+diff --git a/apps/web/src/features/kellyPanelRatio.ts b/apps/web/src/features/kellyPanelRatio.ts
+new file mode 100644
+index 00000000..d0b92c9b
+--- /dev/null
++++ b/apps/web/src/features/kellyPanelRatio.ts
+@@ -0,0 +1,38 @@
++// Kelly's project surface persists this preference with the project's other
++// settings. A temporary browser session must not be the source of truth.
++export function validPanelRatio(value: unknown): value is number {
++  return typeof value === 'number' && Number.isFinite(value) && value > 0 && value < 1;
++}
++
++export function createKellyPanelRatio(request: typeof fetch = fetch) {
++  let ratio: number | null = null;
++  let changed = false;
++  let pending = Promise.resolve();
++  return {
++    width(available: number): number | null {
++      return ratio === null ? null : ratio * available;
++    },
++    async restore(): Promise<void> {
++      const response = await request('/api/app-config');
++      if (!response.ok) throw new Error('Could not read Studio layout');
++      const { config } = await response.json();
++      if (!changed && validPanelRatio(config?.chatPanelRatio)) ratio = config.chatPanelRatio;
++    },
++    save(width: number, available: number): Promise<void> {
++      const next = width / available;
++      if (!validPanelRatio(next)) return Promise.resolve();
++      changed = true;
++      ratio = next;
++      // Preserve the order of successive user gestures. Automatic clamping
++      // and window resizes only call width(), never write a preference.
++      pending = pending.catch(() => {}).then(async () => {
++        const response = await request('/api/app-config', {
++          method: 'PUT', headers: { 'content-type': 'application/json' },
++          body: JSON.stringify({ chatPanelRatio: next }), keepalive: true,
++        });
++        if (!response.ok) throw new Error('Could not save Studio layout');
++      });
++      return pending;
++    },
++  };
 +}
 diff --git a/apps/web/src/router.ts b/apps/web/src/router.ts
 index a7ed49a7..3714b516 100644
@@ -541,4 +659,61 @@ index 00000000..95b15b80
 +    await Promise.resolve();
 +    expect(location.pathname).toBe('/projects/project-a/conversations/chat-b');
 +  });
++});
+diff --git a/apps/web/tests/kelly-panel-ratio.test.ts b/apps/web/tests/kelly-panel-ratio.test.ts
+new file mode 100644
+index 00000000..bb54a35f
+--- /dev/null
++++ b/apps/web/tests/kelly-panel-ratio.test.ts
+@@ -0,0 +1,51 @@
++import { expect, it, vi } from 'vitest';
++import { createKellyPanelRatio } from '../src/features/kellyPanelRatio';
++
++it('restores the last ratio after a new view and scales it without saving clamped widths', async () => {
++  let saved: number | undefined;
++  const writes: number[] = [];
++  const request = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
++    if (init?.method === 'PUT') { saved = JSON.parse(String(init.body)).chatPanelRatio; writes.push(saved!); }
++    return Response.json({ config: { chatPanelRatio: saved } });
++  });
++  const first = createKellyPanelRatio(request);
++  await first.restore(); expect(first.width(1200)).toBeNull();
++  await first.save(420, 1200);
++  const reopened = createKellyPanelRatio(request);
++  await reopened.restore();
++  expect(reopened.width(1200)).toBe(420);
++  expect(reopened.width(600)).toBe(210);
++  expect(reopened.width(1200)).toBe(420);
++  expect(writes).toEqual([0.35]);
++  await reopened.save(480, 1200);
++  const restarted = createKellyPanelRatio(request);
++  await restarted.restore(); expect(restarted.width(1200)).toBe(480);
++});
++
++it('ignores malformed and out-of-range saved choices', async () => {
++  for (const value of [undefined, null, '0.4', -1, 0, 1, 9]) {
++    const layout=createKellyPanelRatio(async () => Response.json({config:{chatPanelRatio:value}}));
++    await layout.restore(); expect(layout.width(1200)).toBeNull();
++  }
++});
++
++it('does not let a slow initial read replace a newer gesture', async () => {
++  let resolve!: (r: Response) => void;
++  const layout=createKellyPanelRatio((_url, init) => init ? Promise.resolve(Response.json({})) : new Promise(r => {resolve=r;}));
++  const loaded=layout.restore();
++  await layout.save(480,1200);
++  resolve(Response.json({config:{chatPanelRatio:0.2}})); await loaded;
++  expect(layout.width(1200)).toBe(480);
++});
++
++it('serializes successive choices and reports a refused save', async () => {
++  let finish!: (r: Response) => void;
++  const request=vi.fn(() => new Promise<Response>(r => {finish=r;}));
++  const layout=createKellyPanelRatio(request);
++  const first=layout.save(420,1200), second=layout.save(480,1200);
++  await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
++  finish(Response.json({})); await first;
++  await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
++  const rejected=expect(second).rejects.toThrow('Could not save');
++  finish(Response.json({}, {status:503})); await rejected;
 +});

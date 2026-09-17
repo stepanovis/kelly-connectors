@@ -17,8 +17,8 @@ assert(base && web && provenanceFile && output, 'Usage: rebuild-web-package.mjs 
 const pin = JSON.parse(await readFile(join(directory, 'upstream.json'), 'utf8'))
 const overlay = JSON.parse(await readFile(join(directory, 'embedded-web.json'), 'utf8'))
 const baseDigests = {
-  arm64: ['1e4739737931c85a0e1119c7fa9aadf35bb7d8157a29610a9a6f487bca0881d7', '6a5865dece6506718f2279f6b2d1c53a672c1d8ec624e00e9c5f9fc829f2db22'],
-  x64: ['11fe65ff10d107a76c8b34ae049c773b91ad96c9d91a2098e03b9e2e453db452', '474fe26d3109b03fe931c70d1c545c6727534a602bafc81ad778dee124464ec4'],
+  arm64: ['476e5ca45a88ab107079ab72ed79ef82a60db91d8f97404e42fe13df30c0f7ba', '1e4739737931c85a0e1119c7fa9aadf35bb7d8157a29610a9a6f487bca0881d7', '6a5865dece6506718f2279f6b2d1c53a672c1d8ec624e00e9c5f9fc829f2db22'],
+  x64: ['998ec5a67eb40266fe9419d7ab9b9bd821653dac20819b5087833b41d2a53c1b', '11fe65ff10d107a76c8b34ae049c773b91ad96c9d91a2098e03b9e2e453db452', '474fe26d3109b03fe931c70d1c545c6727534a602bafc81ad778dee124464ec4'],
 }
 async function digest(file) { const hash=createHash('sha256');for await(const bytes of createReadStream(file))hash.update(bytes);return hash.digest('hex') }
 const manifest = await verifyPayload(base)
