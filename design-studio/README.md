@@ -66,7 +66,7 @@ macOS signing, clean-machine compatibility, project isolation, visual generation
 and the in-app user path remain release gates. Matching the production graph
 does not assert byte-identical archives or native compilation output.
 
-## Kelly embedded project UI (0.1.0-alpha.4)
+## Kelly embedded project UI (0.1.0-alpha.6)
 
 `embedded-web.patch` modifies the pinned React source before compilation.
 `embedded-web.json` pins both the patch and each original source file. The
@@ -91,16 +91,16 @@ upstream navigation. This is not a user preference because the hosting Kelly
 view already owns project selection.
 
 For this UI-only release, `rebuild-web-package.mjs` also accepts the verified
-released 0.1.0-alpha.2 or 0.1.0-alpha.3 native payloads. It checks their trusted manifest digests,
+released 0.1.0-alpha.2, 0.1.0-alpha.3 or 0.1.0-alpha.4 native payloads. It checks their trusted manifest digests,
 all payload files, and the web-output digest from the completed build. It then
 replaces only `apps/web/out`, normalizes static file/directory modes to 0644/0755,
 writes the new manifest and archives the candidate. Normalizing modes prevents
 a build with umask 002 from failing integrity checks after extraction with 022.
 It asserts that every native/runtime/resource entry remains byte-identical.
-This is the artifact derivation used for alpha.3:
+This is the artifact derivation used for alpha.5:
 
 ```sh
-node design-studio/rebuild-web-package.mjs "$ALPHA2_PAYLOAD" \
+node design-studio/rebuild-web-package.mjs "$ALPHA4_PAYLOAD" \
   "$UPSTREAM_CHECKOUT/apps/web/out" "$EVIDENCE/embedded-web.json" "$NEW_OUTPUT"
 ```
 
@@ -109,7 +109,7 @@ tar metadata need not produce byte-identical archives. Record the exact archive
 size/SHA-256 and manifest SHA-256 in the desktop artifact catalog before release.
 The web build receipt binds the patch, upstream commit and actual static output.
 
-Desktop explicitly permits alpha.2 and alpha.3 data for alpha.4 only when upstream commit
+Desktop explicitly permits alpha.2, alpha.3 and alpha.4 data for alpha.5 only when upstream commit
 and architecture match. Discovery offers a download; it never downloads or runs
 old executable bytes automatically. Explicit installation preserves data and the
 old active pointer until the new archive passes integrity/native checks. Unknown
@@ -136,3 +136,26 @@ focus; existing standalone AvatarMenu and embedded-router tests run alongside
 it. Native desktop acceptance is in `scripts/verify-design-studio-settings.ts`
 of the Kelly repository. Its optional catalogue replay tests UI selection, not
 model execution or account access.
+
+## Menu correction .5
+
+The embedded selection error uses a dedicated typed locale key. RU and EN follow
+the approved retry wording; other locales use the same English fallback. The
+standalone settings error is unchanged. Kelly's desktop appearance adapter owns
+the opaque menu surface; the component retains its native controls and geometry.
+The UI-only repacker accepts the exact released .4 manifests in addition to .2/.3
+and still verifies every native/runtime/resource entry before and after repacking.
+
+## Kelly divider preference (#1086)
+
+The reviewed web overlay persists only the chat/preview ratio through the
+project-scoped `/api/app-config` endpoint. Desktop validates `chatPanelRatio`
+as a finite number strictly between 0 and 1, stores it with existing project
+preferences, and ignores invalid stored values. Resizing the window clamps the
+rendered panels without saving that temporary clamp. Standalone OpenDesign
+keeps its original localStorage path. No data migration is introduced.
+
+Component .6 retains the .5 selection error translations. Its native runtime
+and resources are verified byte-for-byte against the trusted .4 payload.
+The desktop source catalog and both archive hashes must agree before release;
+a local component smoke does not prove delivery in a signed Kelly Alpha.

@@ -1,11 +1,31 @@
 {
   "schemaVersion": 1,
   "upstreamCommit": "1bdc052283c16af1a1b4cad772d456ee728600c1",
-  "patchSha256": "76326c642aea7fd3aa689903cbb3213b84d02c2893252d1a8ce3d5be20120d69",
+  "patchSha256": "cf474358c3cbc795ba0c08bd357ac02cf0ad3588350ef8f44536814e2a012032",
   "sources": {
     "apps/web/src/App.tsx": "183c0774e43183d12ba16072d83cc7ab7c946ca8ba3ab8bd5c66178507087dfd",
     "apps/web/src/components/ProjectView.tsx": "26c126c2eed3cbacc28c4b7ec0b2a57357219bfb100ab974443e74dc0aa4b64f",
     "apps/web/src/router.ts": "444e11e316b3a7aacf5115ec660f965f18a2ad2bff624614ea8a65346c1fb54b",
-    "apps/web/src/components/AvatarMenu.tsx": "3cbc849f1444ee6754f83d260f75103b4a81e18e5a4972a77a57e4c604dd0b95"
+    "apps/web/src/components/AvatarMenu.tsx": "3cbc849f1444ee6754f83d260f75103b4a81e18e5a4972a77a57e4c604dd0b95",
+    "apps/web/src/i18n/locales/ar.ts": "a05c5aaba043bf35693fbcdfc31b711ac86a49b2124fd4e64c359be8e3a3651e",
+    "apps/web/src/i18n/locales/de.ts": "dc13bef952bd8ad7178884b763889165fc98ebc003b0e4cee64b4630a759eea5",
+    "apps/web/src/i18n/locales/en.ts": "dae27cc839508967eaf4fbbf3a0701dbf6447dc85ef6a1aac08b27e4ef496399",
+    "apps/web/src/i18n/locales/es-ES.ts": "c16f3374f95d800ca9186ab086e7ccbde59caeb28846885826042250a1c4c04e",
+    "apps/web/src/i18n/locales/fa.ts": "487649f789ea15b61a5aab40ce17394bf2e0a05b276a6237a20e39b7e1987c99",
+    "apps/web/src/i18n/locales/fr.ts": "cac5c64f001176094ac0fdaf85c5a1e7a37b17edeec56fe18a23954e20f1c9b1",
+    "apps/web/src/i18n/locales/hu.ts": "525ccb0d07ed4a84f118bb8771d54c40ab6dfd93f03fceb6590dd0a2043897f2",
+    "apps/web/src/i18n/locales/id.ts": "41f4d1868a8d5e0cfe7281219cdefa334a9d11266a33d6b53d4496d6e3348293",
+    "apps/web/src/i18n/locales/it.ts": "b3566df733bad215a05da0886a9d8542544afb176576453f8e60ea37c9b37358",
+    "apps/web/src/i18n/locales/ja.ts": "123d1e1966e5658f03b8071ece27591988cc1e11c4d92369d9259f2e84e9c056",
+    "apps/web/src/i18n/locales/ko.ts": "30ac4e3bcba76bd1f2d0733e359983efd52ae41c13e0ac60e38142e0b1fee369",
+    "apps/web/src/i18n/locales/pl.ts": "2f02f4b6a4d075869c7b5a9a7fb4c70d0f73317ee1138290ac05ba2bc8455399",
+    "apps/web/src/i18n/locales/pt-BR.ts": "d1a869c2c36a8c194521f238d47ce620e504179b7fb736983e2ccc937c7a7013",
+    "apps/web/src/i18n/locales/ru.ts": "476502d2695bcaeaf54f3d73b7a0df71c916b8c921cdb9bda2472fb482f45d9f",
+    "apps/web/src/i18n/locales/th.ts": "44011c82bdb64c818c8a989adb553ef5434a4e4f20f997588fa2e568a66b694d",
+    "apps/web/src/i18n/locales/tr.ts": "a8227c845270076b73d15015b53bc651beb046eb181e8a8ab1ec0a7ecd34fca5",
+    "apps/web/src/i18n/locales/uk.ts": "b4c893e4b8dbb0fe174fa42898784633aa995ecb05b70dd86e785c2b12a982ec",
+    "apps/web/src/i18n/locales/zh-CN.ts": "a69781633662cd6f405e9e3ba7f9f08d09aefdcad5bd669cd62ced449290481d",
+    "apps/web/src/i18n/locales/zh-TW.ts": "fa143c4817d48d763996a85171816263b1bf9bde276a52d77fa5593c223c3a54",
+    "apps/web/src/i18n/types.ts": "ca36acebdb92d5722c93101735a8b18bec4c8c271a26c164efd68e6a8abc40d8"
   }
 }

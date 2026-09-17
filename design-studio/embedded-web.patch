@@ -80,7 +80,7 @@ index 2fab62fa..bc7d74b1 100644
              onOpenSettings={openSettings}
              onSignedOut={handleActiveCloudSignOut}
 diff --git a/apps/web/src/components/AvatarMenu.tsx b/apps/web/src/components/AvatarMenu.tsx
-index f736e86f..cc823eb8 100644
+index f736e86f..a8594bd2 100644
 --- a/apps/web/src/components/AvatarMenu.tsx
 +++ b/apps/web/src/components/AvatarMenu.tsx
 @@ -1,4 +1,5 @@
@@ -260,7 +260,7 @@ index f736e86f..cc823eb8 100644
            ) : null}
  
 +          {KELLY_EMBEDDED_PROJECT && selectionSaving ? <div role="status">{t('settings.autosaveSaving')}</div> : null}
-+          {KELLY_EMBEDDED_PROJECT && selectionError ? <div role="alert">{t('settings.autosaveError')}</div> : null}
++          {KELLY_EMBEDDED_PROJECT && selectionError ? <div role="alert">{t('avatar.selectionSaveError')}</div> : null}
            {/* The one link out to 设置 → 执行. #5517's popover has no such entry,
                but #5517 also never moved CLI switching out of this popover — we
                did (2026-07-21), so without this the place that switching moved TO
@@ -521,6 +521,246 @@ index 00000000..d0b92c9b
 +    },
 +  };
 +}
+diff --git a/apps/web/src/i18n/locales/ar.ts b/apps/web/src/i18n/locales/ar.ts
+index 88a2e8df..b1a10301 100644
+--- a/apps/web/src/i18n/locales/ar.ts
++++ b/apps/web/src/i18n/locales/ar.ts
+@@ -3920,6 +3920,7 @@ export const ar: Dict = {
+   'settings.autosaveSaving': 'جارٍ الحفظ…',
+   'settings.autosaveSaved': 'تم حفظ جميع التغييرات',
+   'settings.autosaveError': 'تعذّر حفظ التغييرات. قد يكون الـ daemon المحلي غير متاح.',
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   'settings.libraryToggleLabel': 'تبديل',
+   'settings.memory': 'الذاكرة',
+   'settings.memoryHint': 'الحقائق والسياق المحفوظة للمحادثات المستقبلية',
+diff --git a/apps/web/src/i18n/locales/de.ts b/apps/web/src/i18n/locales/de.ts
+index 97bcae3e..095b1a38 100644
+--- a/apps/web/src/i18n/locales/de.ts
++++ b/apps/web/src/i18n/locales/de.ts
+@@ -3920,6 +3920,7 @@ export const de: Dict = {
+   'settings.autosaveSaving': 'Speichere…',
+   'settings.autosaveSaved': 'Alle Änderungen gespeichert',
+   'settings.autosaveError': 'Änderungen konnten nicht gespeichert werden. Der lokale Daemon ist möglicherweise offline.',
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   'settings.libraryToggleLabel': 'Umschalten',
+   'settings.memory': 'Speicher',
+   'settings.memoryHint': 'Persönliche Fakten, automatisch aus Chats extrahiert',
+diff --git a/apps/web/src/i18n/locales/en.ts b/apps/web/src/i18n/locales/en.ts
+index efd9e38d..4fa5fe48 100644
+--- a/apps/web/src/i18n/locales/en.ts
++++ b/apps/web/src/i18n/locales/en.ts
+@@ -3958,6 +3958,7 @@ export const en: Dict = {
+   'settings.autosaveSaving': 'Saving\u2026',
+   'settings.autosaveSaved': 'All changes saved',
+   'settings.autosaveError': 'Couldn\u2019t save changes. The local daemon may be offline.',
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   'settings.libraryToggleLabel': 'Toggle',
+   'settings.memory': 'Memory',
+   'settings.memoryHint': 'Saved facts and context for future chats',
+diff --git a/apps/web/src/i18n/locales/es-ES.ts b/apps/web/src/i18n/locales/es-ES.ts
+index f14f2667..2d269033 100644
+--- a/apps/web/src/i18n/locales/es-ES.ts
++++ b/apps/web/src/i18n/locales/es-ES.ts
+@@ -3920,6 +3920,7 @@ export const esES: Dict = {
+   'settings.autosaveSaving': 'Guardando…',
+   'settings.autosaveSaved': 'Todos los cambios guardados',
+   'settings.autosaveError': 'No se pudieron guardar los cambios. Es posible que el daemon local esté desconectado.',
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   'settings.libraryToggleLabel': 'Alternar',
+   'settings.memory': 'Memoria',
+   'settings.memoryHint': 'Datos personales extraídos automáticamente de los chats',
+diff --git a/apps/web/src/i18n/locales/fa.ts b/apps/web/src/i18n/locales/fa.ts
+index c62c0bb0..4d3a9d47 100644
+--- a/apps/web/src/i18n/locales/fa.ts
++++ b/apps/web/src/i18n/locales/fa.ts
+@@ -3920,6 +3920,7 @@ export const fa: Dict = {
+   'settings.autosaveSaving': 'در حال ذخیره…',
+   'settings.autosaveSaved': 'همهٔ تغییرات ذخیره شد',
+   'settings.autosaveError': 'تغییرات ذخیره نشد. ممکن است daemon محلی آفلاین باشد.',
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   'settings.libraryToggleLabel': 'تغییر وضعیت',
+   'settings.memory': 'حافظه',
+   'settings.memoryHint': 'حقایق و زمینهٔ ذخیره‌شده برای گفت‌وگوهای آینده',
+diff --git a/apps/web/src/i18n/locales/fr.ts b/apps/web/src/i18n/locales/fr.ts
+index 10301aa9..d03189d3 100644
+--- a/apps/web/src/i18n/locales/fr.ts
++++ b/apps/web/src/i18n/locales/fr.ts
+@@ -3920,6 +3920,7 @@ export const fr: Dict = {
+   'settings.autosaveSaving': 'Enregistrement…',
+   'settings.autosaveSaved': 'Toutes les modifications enregistrées',
+   'settings.autosaveError': 'Impossible d’enregistrer les modifications. Le daemon local est peut-être hors ligne.',
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   'settings.libraryToggleLabel': 'Activer ou désactiver',
+   'settings.memory': 'Mémoire',
+   'settings.memoryHint': 'Faits personnels extraits automatiquement des conversations',
+diff --git a/apps/web/src/i18n/locales/hu.ts b/apps/web/src/i18n/locales/hu.ts
+index 6bd98cf2..c6a4df0a 100644
+--- a/apps/web/src/i18n/locales/hu.ts
++++ b/apps/web/src/i18n/locales/hu.ts
+@@ -3920,6 +3920,7 @@ export const hu: Dict = {
+   'settings.autosaveSaving': 'Mentés…',
+   'settings.autosaveSaved': 'Minden változtatás mentve',
+   'settings.autosaveError': 'A változtatások mentése nem sikerült. A helyi daemon offline lehet.',
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   'settings.libraryToggleLabel': 'Átváltás',
+   'settings.memory': 'Memória',
+   'settings.memoryHint': 'Personal facts auto-extracted from chats',
+diff --git a/apps/web/src/i18n/locales/id.ts b/apps/web/src/i18n/locales/id.ts
+index b62ffd96..3b905582 100644
+--- a/apps/web/src/i18n/locales/id.ts
++++ b/apps/web/src/i18n/locales/id.ts
+@@ -3920,6 +3920,7 @@ export const id: Dict = {
+   'settings.autosaveSaving': 'Menyimpan…',
+   'settings.autosaveSaved': 'Semua perubahan tersimpan',
+   'settings.autosaveError': 'Tidak bisa menyimpan perubahan. Daemon lokal mungkin offline.',
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   'settings.libraryToggleLabel': 'Toggle',
+   'settings.memory': 'Memory',
+   'settings.memoryHint': 'Personal facts auto-extracted from chats',
+diff --git a/apps/web/src/i18n/locales/it.ts b/apps/web/src/i18n/locales/it.ts
+index f27d0e84..37428803 100644
+--- a/apps/web/src/i18n/locales/it.ts
++++ b/apps/web/src/i18n/locales/it.ts
+@@ -3920,6 +3920,7 @@ export const it: Dict = {
+   'settings.autosaveSaving': 'Salvataggio…',
+   'settings.autosaveSaved': 'Tutte le modifiche salvate',
+   'settings.autosaveError': 'Impossibile salvare le modifiche. Il daemon locale potrebbe essere offline.',
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   'settings.libraryToggleLabel': 'Alterna',
+   'settings.memory': 'Memoria',
+   'settings.memoryHint': 'Fatti personali estratti automaticamente dalle conversazioni',
+diff --git a/apps/web/src/i18n/locales/ja.ts b/apps/web/src/i18n/locales/ja.ts
+index d9a9e4c5..f41edaa2 100644
+--- a/apps/web/src/i18n/locales/ja.ts
++++ b/apps/web/src/i18n/locales/ja.ts
+@@ -3920,6 +3920,7 @@ export const ja: Dict = {
+   'settings.autosaveSaving': '保存中…',
+   'settings.autosaveSaved': 'すべての変更を保存しました',
+   'settings.autosaveError': '変更を保存できませんでした。ローカル daemon がオフラインの可能性があります。',
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   'settings.libraryToggleLabel': '切り替え',
+   'settings.memory': 'メモリ',
+   'settings.memoryHint': 'チャットから自動抽出された個人情報',
+diff --git a/apps/web/src/i18n/locales/ko.ts b/apps/web/src/i18n/locales/ko.ts
+index c9d8e900..2e17af04 100644
+--- a/apps/web/src/i18n/locales/ko.ts
++++ b/apps/web/src/i18n/locales/ko.ts
+@@ -3920,6 +3920,7 @@ export const ko: Dict = {
+   'settings.autosaveSaving': '저장 중…',
+   'settings.autosaveSaved': '모든 변경사항이 저장됨',
+   'settings.autosaveError': '변경사항을 저장하지 못했습니다. 로컬 데몬이 오프라인일 수 있습니다.',
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   'settings.libraryToggleLabel': '전환',
+   'settings.memory': '메모리',
+   'settings.memoryHint': '대화에서 자동으로 추출된 개인 정보',
+diff --git a/apps/web/src/i18n/locales/pl.ts b/apps/web/src/i18n/locales/pl.ts
+index 934d75c7..a615f3a1 100644
+--- a/apps/web/src/i18n/locales/pl.ts
++++ b/apps/web/src/i18n/locales/pl.ts
+@@ -3920,6 +3920,7 @@ export const pl: Dict = {
+   'settings.autosaveSaving': 'Zapisywanie…',
+   'settings.autosaveSaved': 'Wszystkie zmiany zapisane',
+   'settings.autosaveError': 'Nie udało się zapisać zmian. Lokalny demon może być offline.',
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   'settings.libraryToggleLabel': 'Przełącz',
+   'settings.memory': 'Pamięć',
+   'settings.memoryHint': 'Personal facts auto-extracted from chats',
+diff --git a/apps/web/src/i18n/locales/pt-BR.ts b/apps/web/src/i18n/locales/pt-BR.ts
+index 7f7dd8f6..67d8826e 100644
+--- a/apps/web/src/i18n/locales/pt-BR.ts
++++ b/apps/web/src/i18n/locales/pt-BR.ts
+@@ -3920,6 +3920,7 @@ export const ptBR: Dict = {
+   'settings.autosaveSaving': 'Salvando…',
+   'settings.autosaveSaved': 'Todas as alterações foram salvas',
+   'settings.autosaveError': 'Não foi possível salvar as alterações. O daemon local pode estar offline.',
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   'settings.libraryToggleLabel': 'Alternar',
+   'settings.memory': 'Memória',
+   'settings.memoryHint': 'Personal facts auto-extracted from chats',
+diff --git a/apps/web/src/i18n/locales/ru.ts b/apps/web/src/i18n/locales/ru.ts
+index 6bea557e..f8ff7523 100644
+--- a/apps/web/src/i18n/locales/ru.ts
++++ b/apps/web/src/i18n/locales/ru.ts
+@@ -3920,6 +3920,7 @@ export const ru: Dict = {
+   'settings.autosaveSaving': 'Сохранение…',
+   'settings.autosaveSaved': 'Все изменения сохранены',
+   'settings.autosaveError': 'Не удалось сохранить изменения. Возможно, локальный демон не в сети.',
++  'avatar.selectionSaveError': "Не удалось сохранить выбор. Повторите выбор",
+   'settings.libraryToggleLabel': 'Переключить',
+   'settings.memory': 'Память',
+   'settings.memoryHint': 'Личные факты, автоматически извлечённые из чатов',
+diff --git a/apps/web/src/i18n/locales/th.ts b/apps/web/src/i18n/locales/th.ts
+index c58252e9..4fafb4b2 100644
+--- a/apps/web/src/i18n/locales/th.ts
++++ b/apps/web/src/i18n/locales/th.ts
+@@ -3920,6 +3920,7 @@ export const th: Dict = {
+   'settings.autosaveSaving': 'บันทึก…',
+   'settings.autosaveSaved': 'บันทึกของข้อมูลสำเร็จ',
+   'settings.autosaveError': 'เซฟข้อมูลไม่ได้ คาดว่า Daemon ขาดสัญญาณ',
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   'settings.libraryToggleLabel': 'สลับโหมด',
+   'settings.memory': 'หน่วยความจำ',
+   'settings.memoryHint': 'ข้อเท็จจริงและบริบทที่บันทึกไว้สำหรับการแชทในอนาคต',
+diff --git a/apps/web/src/i18n/locales/tr.ts b/apps/web/src/i18n/locales/tr.ts
+index b6f646ed..ab65f3d7 100644
+--- a/apps/web/src/i18n/locales/tr.ts
++++ b/apps/web/src/i18n/locales/tr.ts
+@@ -3920,6 +3920,7 @@ export const tr: Dict = {
+   'settings.autosaveSaving': 'Kaydediliyor…',
+   'settings.autosaveSaved': 'Tüm değişiklikler kaydedildi',
+   'settings.autosaveError': 'Değişiklikler kaydedilemedi. Yerel daemon çevrimdışı olabilir.',
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   'settings.libraryToggleLabel': 'Değiştir',
+   'settings.memory': 'Bellek',
+   'settings.memoryHint': 'Personal facts auto-extracted from chats',
+diff --git a/apps/web/src/i18n/locales/uk.ts b/apps/web/src/i18n/locales/uk.ts
+index 2ef9e43d..989b4809 100644
+--- a/apps/web/src/i18n/locales/uk.ts
++++ b/apps/web/src/i18n/locales/uk.ts
+@@ -3920,6 +3920,7 @@ export const uk: Dict = {
+   'settings.autosaveSaving': 'Збереження…',
+   'settings.autosaveSaved': 'Усі зміни збережено',
+   'settings.autosaveError': 'Не вдалося зберегти зміни. Можливо, локальний демон офлайн.',
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   'settings.libraryToggleLabel': 'Перемкнути',
+   'settings.memory': 'Пам\'ять',
+   'settings.memoryHint': 'Збережені факти та контекст для майбутніх чатів',
+diff --git a/apps/web/src/i18n/locales/zh-CN.ts b/apps/web/src/i18n/locales/zh-CN.ts
+index f1c7c376..dd7a4371 100644
+--- a/apps/web/src/i18n/locales/zh-CN.ts
++++ b/apps/web/src/i18n/locales/zh-CN.ts
+@@ -4138,6 +4138,7 @@ export const zhCN: Dict = {
+   "settings.autosaveSaving": "保存中…",
+   "settings.autosaveSaved": "所有更改已保存",
+   "settings.autosaveError": "保存更改失败。本地 daemon 可能不在线。",
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   "settings.libraryToggleLabel": "切换",
+   "settings.memory": "记忆",
+   "settings.memoryHint": "后续对话可复用的事实和上下文",
+diff --git a/apps/web/src/i18n/locales/zh-TW.ts b/apps/web/src/i18n/locales/zh-TW.ts
+index 51ea9913..2860ea24 100644
+--- a/apps/web/src/i18n/locales/zh-TW.ts
++++ b/apps/web/src/i18n/locales/zh-TW.ts
+@@ -4146,6 +4146,7 @@ export const zhTW: Dict = {
+   "settings.autosaveSaving": "儲存中…",
+   "settings.autosaveSaved": "所有變更已儲存",
+   "settings.autosaveError": "無法儲存變更。本機 daemon 可能離線。",
++  'avatar.selectionSaveError': "Couldn't save your selection. Try selecting it again.",
+   "settings.libraryToggleLabel": "切換",
+   "settings.memory": "記憶",
+   "settings.memoryHint": "從對話中自動沉澱的個人化資訊",
+diff --git a/apps/web/src/i18n/types.ts b/apps/web/src/i18n/types.ts
+index d58404ce..c7e12b26 100644
+--- a/apps/web/src/i18n/types.ts
++++ b/apps/web/src/i18n/types.ts
+@@ -776,6 +776,7 @@ export interface Dict {
+   'settings.autosaveSaving': string;
+   'settings.autosaveSaved': string;
+   'settings.autosaveError': string;
++  'avatar.selectionSaveError': string;
+   'settings.orbit.eyebrow': string;
+   'settings.orbit.title': string;
+   'settings.orbit.navHint': string;
 diff --git a/apps/web/src/router.ts b/apps/web/src/router.ts
 index a7ed49a7..3714b516 100644
 --- a/apps/web/src/router.ts
@@ -554,7 +794,7 @@ index a7ed49a7..3714b516 100644
    const index = readHistoryIndex();
 diff --git a/apps/web/tests/components/AvatarMenu.kelly.test.tsx b/apps/web/tests/components/AvatarMenu.kelly.test.tsx
 new file mode 100644
-index 00000000..6dc6de54
+index 00000000..337c66b1
 --- /dev/null
 +++ b/apps/web/tests/components/AvatarMenu.kelly.test.tsx
 @@ -0,0 +1,72 @@
@@ -620,7 +860,7 @@ index 00000000..6dc6de54
 +  expect(screen.getByRole('status').textContent).toBe('common.loading');
 +  ui.rerender(<AvatarMenu {...props} />);
 +  fireEvent.click(screen.getByTestId('kelly-agent-option-codex'));
-+  expect((await screen.findByRole('alert')).textContent).toBe('settings.autosaveError');
++  expect((await screen.findByRole('alert')).textContent).toBe('avatar.selectionSaveError');
 +  expect(screen.getByTestId('kelly-agent-option-claude').getAttribute('aria-pressed')).toBe('true');
 +  fireEvent.click(screen.getByTestId('kelly-agent-option-codex'));
 +  expect(screen.getByRole('status').textContent).toBe('settings.autosaveSaving');
