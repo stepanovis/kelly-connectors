@@ -50,10 +50,39 @@ only, does not open a browser, and resolves resources from its own package.
 `--check-native` verifies SQLite and PTY loading without starting the service.
 
 The desktop integration instead starts its own `managed-host.mjs` with the
-payload's Node and an IPC channel. It requires managed runtime contract v1,
+payload's Node and an IPC channel. It requires managed runtime contract v2,
 adds a private HTTP capability and a per-project CLI sandbox, and fails closed
 if a candidate does not enforce its HTTP boundary. Host policy resources and
 their notices ship with Kelly; upstream runtime bytes ship in this component.
+
+## Managed file writer (0.1.0-alpha.7)
+
+The managed startup contract requires Kelly's file-writer callback. Pinned
+adapters route project files, uploads, history, live artifacts, run staging and
+generated media bytes through that callback. The upstream data schema is unchanged.
+This component must be delivered together with the desktop contract v2; an older
+desktop does not implicitly gain compatibility with the new startup interface.
+
+`rebuild-managed-package.mjs` derives the component from the independently checked
+.6 archive and a verified .4 native payload. It checks both trusted SHA-256 pins,
+validates the entire base, reuses identical APFS file data, and restores changed
+leaves from the exact .6 archive. A second complete manifest check must match .6
+before the writer overlay is applied. Only the pinned daemon transforms change;
+the native dependencies, Node, static UI and resources must remain identical.
+
+```sh
+node design-studio/rebuild-managed-package.mjs "$ALPHA4_ARM64_PAYLOAD" \
+  "$ALPHA6_ARCHIVE" arm64 "$NEW_OUTPUT_DIRECTORY"
+```
+
+Use `x64` with the checked .6 x64 archive for the other component architecture.
+This reuse does not run native compilation or alter the installed component.
+Failed output is retained for diagnosis; a subsequent build requires a new path.
+Archive and manifest hashes are recorded in `archive.json` and pinned by desktop.
+The desktop Alpha/Beta remain arm64-only. The UID lifetime experiment is not part
+of the component or an installation prerequisite. Full profile namespace
+coordination, native resume and the remaining external processor paths are not
+claimed as completed by this Alpha component.
 
 No release is uploaded
 by these scripts. The manifest detects corruption, not publisher authenticity;
