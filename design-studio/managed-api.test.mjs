@@ -6,6 +6,7 @@ import { transformServer } from './managed-api.mjs'
 const fixture = `function startServer({ inheritedEnvironment = () => ({}), odNextExecutionPreflightResolver = null, } = {}) {
     const app = express();
     const projectPreviewScopes = createProjectPreviewScopeRegistry();
+    const db = openDatabase(PROJECT_ROOT, { dataDir: RUNTIME_DATA_DIR });
     async function run() {
             spawnedAgentEnv = env;
             const invocation = createCommandInvocation({
@@ -18,15 +19,17 @@ const fixture = `function startServer({ inheritedEnvironment = () => ({}), odNex
     app.run = run;
     return app;
 }`
+const managedSource = () => transformServer(fixture).replace(/^import .*kelly-writer-bridge.*\n/m, '').replace('export const ', 'const ')
+const dbContext = { openDatabase: () => ({}), PROJECT_ROOT: '/root', RUNTIME_DATA_DIR: '/root/data', PROJECTS_DIR: '/root/data/projects', installKellyFileWriter: () => {} }
 
 test('managed authorizer executes before private routes and receives preview scope validation', () => {
   const handlers = []
-  const context = vm.createContext({ express: () => ({ use: h => handlers.push(h) }),
+  const context = vm.createContext({ ...dbContext, express: () => ({ use: h => handlers.push(h) }),
     createProjectPreviewScopeRegistry: () => ({ validate: () => true }),
     parseProjectPreviewAssetPath: path => path === '/scoped-preview' ? { projectId: 'a', scope: 'owned' } : null,
   })
-  vm.runInContext(transformServer(fixture).replace('export const ', 'const '), context)
-  vm.runInContext('startServer({ authorizeRequest: (req, preview) => req.headers.owner === "yes" || preview })', context)
+  vm.runInContext(managedSource(), context)
+  vm.runInContext('startServer({ authorizeRequest: (req, preview) => req.headers.owner === "yes" || preview, fileWriter: () => async () => {} })', context)
   function request(path, headers = {}) {
     let index = 0, code = 200, text
     const req = { path, method: 'GET', headers }, res = { status: value => { code = value; return res }, json: value => { text = value }, end: value => { text = value } }
@@ -45,12 +48,12 @@ test('an unexpected server shape fails closed instead of silently omitting the g
 
 test('the native CLI invocation must pass through the managed launch hook', async () => {
   const invocations = [], env = { project: 'a' }, args = ['native-session'], seen = []
-  const context = vm.createContext({ express: () => ({ use: () => {} }),
+  const context = vm.createContext({ ...dbContext, express: () => ({ use: () => {} }),
     createProjectPreviewScopeRegistry: () => ({}), def: { id: 'codex' }, env, args,
     effectiveCwd: '/project/a', agentLaunch: { launchPath: '/cli' },
     createCommandInvocation: value => { invocations.push(value); return value },
   })
-  vm.runInContext(transformServer(fixture).replace('export const ', 'const '), context)
+  vm.runInContext(managedSource(), context)
   context.prepare = async value => { seen.push(value); value.env.HOME = '/home/a'; return { command: '/sandbox', args: ['policy', value.command, ...value.args] } }
   await vm.runInContext('startServer({ prepareAgentLaunch: prepare }).run()', context)
   assert.equal(seen.length, 1)
@@ -62,4 +65,10 @@ test('the native CLI invocation must pass through the managed launch hook', asyn
   context.prepare = async () => { throw new Error('foreign project') }
   await assert.rejects(vm.runInContext('startServer({ prepareAgentLaunch: prepare }).run()', context), /foreign project/)
   assert.equal(invocations.length, 1, 'a rejected launch reached the CLI')
+})
+
+test('managed authorization cannot start without its protected file writer', () => {
+  const context = vm.createContext({ ...dbContext, express: () => ({ use: () => {} }), createProjectPreviewScopeRegistry: () => ({}) })
+  vm.runInContext(managedSource(), context)
+  assert.throws(() => vm.runInContext('startServer({ authorizeRequest: () => true })', context), /protected file writer is required/)
 })

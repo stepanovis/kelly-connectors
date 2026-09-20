@@ -2,21 +2,28 @@ import { createHash } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { applyFileWriterApi } from './file-writer-api.mjs'
+import { transformUploadServer } from './upload-writer-api.mjs'
+import { transformRunServer } from './run-writer-api.mjs'
 
 export const PINNED_SERVER_SHA256 = '50861c30a156970b455233c1c639152bd7960300058d93c704619d1ab4264c95'
 
 export function transformServer(source) {
   const option = 'inheritedEnvironment = () => ({}), odNextExecutionPreflightResolver'
   const registry = '    const projectPreviewScopes = createProjectPreviewScopeRegistry();'
+  const database = '    const db = openDatabase(PROJECT_ROOT, { dataDir: RUNTIME_DATA_DIR });'
   const launch = `            spawnedAgentEnv = env;
             const invocation = createCommandInvocation({
                 command: agentLaunch.launchPath,
                 args,
                 env,
             });`
-  for (const anchor of [option, registry, launch]) if (source.split(anchor).length !== 2) throw new Error('Unknown managed API patch anchor')
-  return '// Modified by Kelly: host authorization and project launch boundary (#1051).\nexport const KELLY_MANAGED_RUNTIME_VERSION = 1;\n' + source
-    .replace(option, 'inheritedEnvironment = () => ({}), authorizeRequest = null, prepareAgentLaunch = null, odNextExecutionPreflightResolver')
+  for (const anchor of [option, registry, launch, database]) if (source.split(anchor).length !== 2) throw new Error('Unknown managed API patch anchor')
+  return '// Modified by Kelly: host authorization, launch boundary and protected file writer.\nimport { installKellyFileWriter } from "./kelly-writer-bridge.js";\nexport const KELLY_MANAGED_RUNTIME_VERSION = 2;\n' + source
+    .replace(option, 'inheritedEnvironment = () => ({}), authorizeRequest = null, prepareAgentLaunch = null, fileWriter = null, odNextExecutionPreflightResolver')
+    .replace(database, database + `
+    if (authorizeRequest !== null && typeof fileWriter !== 'function') throw new Error('Kelly protected file writer is required');
+    if (fileWriter !== null) installKellyFileWriter(fileWriter({ projectsRoot: PROJECTS_DIR, resolveProject: id => getProject(db, id) }), PROJECTS_DIR);`)
     .replace(launch, `            const managedLaunch = prepareAgentLaunch
                 ? await prepareAgentLaunch({ agentId: def.id, command: agentLaunch.launchPath, args, env, cwd: effectiveCwd })
                 : { command: agentLaunch.launchPath, args };
@@ -38,7 +45,9 @@ export async function applyManagedApi(payload) {
   const filename = join(payload, 'apps/daemon/dist/server.js')
   const source = await readFile(filename, 'utf8')
   if (createHash('sha256').update(source).digest('hex') !== PINNED_SERVER_SHA256) throw new Error('Unknown OpenDesign server: managed API patch refused')
-  await writeFile(filename, transformServer(source))
+  const transformed = transformRunServer(transformUploadServer(transformServer(source)))
+  await applyFileWriterApi(payload)
+  await writeFile(filename, transformed)
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await applyManagedApi(process.argv[2])
