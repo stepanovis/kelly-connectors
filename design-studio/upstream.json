@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "https://github.com/nexu-io/open-design.git",
-  "upstreamCommit": "1f8b26ba59fb65d2bcf1ed10ab90156a4f6d0477",
+  "upstreamCommit": "4ad1bf831a27b529e39df64d89e2bc6effb03ca0",
   "upstreamVersion": "0.21.6",
   "version": "0.1.0-alpha.8",
   "nodeVersion": "24.1.0"
