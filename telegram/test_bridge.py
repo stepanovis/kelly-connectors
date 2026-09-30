@@ -106,6 +106,9 @@ def test_a4_messages_require_chatid_param():
     через прямой вызов с пустым query (is_ready замокан)."""
     import asyncio
     bridge.is_ready = True
+    bridge.client = MagicMock()
+    bridge.client.is_connected.return_value = True
+    bridge._connection_error = None
     req = MagicMock()
     req.query = {}  # без chatId
     resp = asyncio.run(bridge.handle_messages(req))
@@ -131,6 +134,9 @@ class FakeClient:
         self._outcomes = list(sign_in_outcomes)
         self._authorized = authorized
         self.disconnected = False
+
+    def is_connected(self):
+        return not self.disconnected
 
     async def connect(self):
         return None

@@ -38,6 +38,7 @@ from telethon.tl.types import (
     Dialog, MessageMediaDocument, MessageMediaPhoto,
 )
 from telethon.errors import (
+    RPCError,
     FloodWaitError,
     PhoneCodeInvalidError,
     PhoneCodeExpiredError,
@@ -59,6 +60,37 @@ log = logging.getLogger('telegram-bridge')
 # ── Globals ──
 client: TelegramClient = None
 is_ready = False
+_connection_error = None
+
+
+def _ready():
+    # is_ready records successful authorization. A disconnected transport does
+    # not erase that session, but must not be advertised as usable.
+    return bool(is_ready and client and client.is_connected() and not _connection_error)
+
+
+async def _connection_health():
+    global _connection_error
+    current = client
+    if not is_ready or current is None:
+        return 0
+    if not current.is_connected():
+        _connection_error = 'Соединение с Telegram потеряно. Повторите подключение.'
+        return 0
+    try:
+        dialogs = await asyncio.wait_for(current.get_dialogs(limit=0), timeout=5)
+        if current is client:
+            _connection_error = None
+        return getattr(dialogs, 'total', 0)
+    except (OSError, asyncio.TimeoutError) as exc:
+        if current is client:
+            _connection_error = str(exc) or 'Telegram не отвечает. Повторите подключение.'
+    except RPCError:
+        # A Telegram RPC response (e.g. FloodWait) proves transport is alive.
+        # A request/chat error is not evidence that authorization was lost.
+        if current is client:
+            _connection_error = None
+    return 0
 
 
 # ── Helpers ──
@@ -159,16 +191,10 @@ async def auth_middleware(request, handler):
 
 # ── Routes ──
 async def handle_status(request):
-    dialogs_count = 0
-    if is_ready:
-        try:
-            dialogs = await client.get_dialogs(limit=0)
-            dialogs_count = dialogs.total if hasattr(dialogs, 'total') else 0
-        except Exception:
-            pass
+    dialogs_count = await _connection_health()
     return web.json_response({
-        'status': 'connected' if is_ready else 'disconnected',
-        'ready': is_ready,
+        'status': 'connected' if _ready() else 'disconnected',
+        'ready': _ready(),
         'chats': dialogs_count,
         'phone': PHONE,
     })
@@ -200,7 +226,7 @@ async def get_contacts_users():
 
 
 async def handle_contacts(request):
-    if not is_ready:
+    if not _ready():
         return web.json_response({'error': 'Telegram not ready'}, status=503)
     try:
         users = await get_contacts_users()
@@ -214,7 +240,7 @@ async def handle_contacts(request):
 
 
 async def handle_contacts_search(request):
-    if not is_ready:
+    if not _ready():
         return web.json_response({'error': 'Telegram not ready'}, status=503)
     q = (request.query.get('q', '') or '').lower()
     if not q:
@@ -295,7 +321,7 @@ async def _search_chats(q, limit):
 
 
 async def handle_chats(request):
-    if not is_ready:
+    if not _ready():
         return web.json_response({'error': 'Telegram not ready'}, status=503)
     try:
         # q (#419): сервер-сайд поиск по имени через сам Telegram — находит ЛЮБОЙ чат
@@ -334,7 +360,7 @@ async def handle_chats(request):
 
 
 async def handle_messages(request):
-    if not is_ready:
+    if not _ready():
         return web.json_response({'error': 'Telegram not ready'}, status=503)
     chat_id_str = request.query.get('chatId', '')
     if not chat_id_str:
@@ -358,7 +384,7 @@ async def handle_messages(request):
 
 
 async def handle_messages_unread(request):
-    if not is_ready:
+    if not _ready():
         return web.json_response({'error': 'Telegram not ready'}, status=503)
     try:
         dialogs = await client.get_dialogs(limit=100)
@@ -385,7 +411,7 @@ async def handle_messages_unread(request):
 
 async def handle_message_media(request):
     """GET /messages/{msg_id}/media?chatId=... — download media from a message."""
-    if not is_ready:
+    if not _ready():
         return web.json_response({'error': 'Telegram not ready'}, status=503)
     chat_id_str = request.query.get('chatId', '')
     if not chat_id_str:
@@ -422,7 +448,7 @@ async def handle_message_media(request):
 
 
 async def handle_messages_send(request):
-    if not is_ready:
+    if not _ready():
         return web.json_response({'error': 'Telegram not ready'}, status=503)
     try:
         data = await request.json()
@@ -475,19 +501,25 @@ STEP_2FA = {'id': '2fa', 'fields': [{'key': 'password', 'type': 'secret', 'label
 
 
 def _auth_descriptor():
-    return {'state': auth_state, 'step': auth_step, 'error': auth_error, 'ready': is_ready}
+    if is_ready and not _ready():
+        return {'state': 'error', 'step': None, 'error': {
+            'message': _connection_error or 'Соединение с Telegram потеряно. Повторите подключение.',
+            'terminal': True,
+        }, 'ready': False}
+    return {'state': auth_state, 'step': auth_step, 'error': auth_error, 'ready': _ready()}
 
 
 async def handle_auth_status(request):
     """GET /auth/status — дескриптор текущего шага машины (Контракт 1)."""
+    await _connection_health()
     return web.json_response(_auth_descriptor())
 
 
 async def handle_auth_start(request):
     """POST /auth/start — начать/перезапустить connect-флоу с initial-полями
     (api_id/api_hash/phone из connect_schema). Идемпотентно, если уже connected."""
-    global _creds, _auth_task, auth_state, auth_error, auth_step
-    if is_ready:
+    global _creds, _auth_task, auth_state, auth_error, auth_step, is_ready
+    if _ready():
         return web.json_response(_auth_descriptor())  # уже подключены — идемпотент
     try:
         data = await request.json()
@@ -503,8 +535,10 @@ async def handle_auth_start(request):
     _creds = {'api_id': int(api_id), 'api_hash': str(api_hash), 'phone': str(phone)}
     if _auth_task and not _auth_task.done():
         _auth_task.cancel()
+        await asyncio.gather(_auth_task, return_exceptions=True)
     auth_error = None
     auth_step = None
+    is_ready = False
     auth_state = 'pending'
     _auth_task = asyncio.ensure_future(_run_auth_flow())
     return web.json_response(_auth_descriptor())
@@ -535,10 +569,11 @@ async def handle_auth_code(request):
 async def handle_auth_cancel(request):
     """POST /auth/cancel — тёрдаун незавершённой сессии (Контракт 1, V4):
     отменить флоу, отключить клиент, вернуться в 'collecting'."""
-    global _auth_task, auth_state, auth_step, auth_error
+    global _auth_task, auth_state, auth_step, auth_error, is_ready, _connection_error
     if _auth_task and not _auth_task.done():
         _auth_task.cancel()
-    if client is not None and not is_ready:
+        await asyncio.gather(_auth_task, return_exceptions=True)
+    if client is not None:
         try:
             await client.disconnect()
         except Exception:
@@ -546,14 +581,21 @@ async def handle_auth_cancel(request):
     auth_state = 'collecting'
     auth_step = None
     auth_error = None
+    is_ready = False
+    _connection_error = None
     return web.json_response(_auth_descriptor())
 
 
 async def _run_auth_flow():
     """Telegram auth-флоу, запускается /auth/start, кормится /auth/submit.
     Двигает auth_state/auth_step/auth_error — их отдаёт /auth/status."""
-    global client, is_ready, auth_state, auth_step, auth_error
+    global client, is_ready, auth_state, auth_step, auth_error, _connection_error
+    is_ready = False
+    _connection_error = None
     try:
+        # Explicit retry releases the previous client but keeps SESSION_FILE.
+        if client is not None:
+            await client.disconnect()
         client = TelegramClient(SESSION_FILE, _creds['api_id'], _creds['api_hash'])
         await client.connect()
 
@@ -612,11 +654,11 @@ async def _run_auth_flow():
                         log.error(f'2FA auth failed: {e}')
                         return
 
+        me = await client.get_me()
         is_ready = True
         auth_state = 'connected'
         auth_step = None
         auth_error = None
-        me = await client.get_me()
         log.info(f'Connected as: {me.first_name} {me.last_name or ""} (@{me.username or "no username"})')
     except asyncio.CancelledError:
         log.info('Auth flow cancelled')
