@@ -6,7 +6,7 @@ import { applyFileWriterApi } from './file-writer-api.mjs'
 import { transformUploadServer } from './upload-writer-api.mjs'
 import { transformRunServer } from './run-writer-api.mjs'
 
-export const PINNED_SERVER_SHA256 = '50861c30a156970b455233c1c639152bd7960300058d93c704619d1ab4264c95'
+export const PINNED_SERVER_SHA256 = '87a3964167fe5cab9d48c4fcee3779779b24b05b0e2a1979c61d62a11f5ac3ef'
 
 export function transformServer(source) {
   const option = 'inheritedEnvironment = () => ({}), odNextExecutionPreflightResolver'

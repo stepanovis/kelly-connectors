@@ -43,6 +43,28 @@ Failed build staging is removed; a failed archive does not leave a candidate.
 
 ## Runtime boundary
 
+### Recovery of the .8 desktop incompatibility
+
+The arm64 .9 candidate preserves the calendar-aware .8 upstream commit and
+native modules, restores the complete managed writer v2, and applies the
+accepted embedded-web overlay. Changing only the runtime version constant is
+not a valid recovery. The builder verifies the entire pinned .8 base and all
+overlay inputs before copying; the installed base is read-only.
+
+```sh
+node design-studio/embedded-web.mjs "$PINNED_UPSTREAM" "$WEB_PROVENANCE"
+node design-studio/rebuild-recovery-package.mjs "$VERIFIED_ALPHA8_PAYLOAD" \
+  "$PINNED_UPSTREAM/apps/web/out" "$WEB_PROVENANCE" "$NEW_OUTPUT_DIRECTORY"
+```
+
+Before shipping, run the candidate with the target desktop's `managed-host.mjs`
+and file writer on disposable data, including .8 project/chat preservation and
+protected file writes. Standalone smoke alone does not verify this contract.
+The desktop validates the trusted manifest and runs that same managed host
+before switching `active.json`. The component archive and manifest hashes must
+be pinned together in the desktop catalog; publish the component before the
+matching desktop. These scripts do not publish either artifact.
+
 The standalone packaging smoke invokes `payload/bin/node payload/launcher.mjs`. It must provide an
 absolute `OD_DATA_DIR` outside the versioned payload with an existing parent,
 and an available `OD_PORT` between 1024 and 65535. The launcher uses loopback
