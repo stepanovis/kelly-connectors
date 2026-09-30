@@ -8,9 +8,8 @@
 # Kelly читает его при проверке обновлений (checkConnectorUpdates).
 #
 # Использование:
-#   ./build.sh            # собрать оба + manifest
+#   ./build.sh            # собрать telegram + manifest
 #   ./build.sh telegram   # только telegram + manifest
-#   ./build.sh whatsapp   # только whatsapp + manifest
 #
 # Готовые файлы заливаются ассетами в GitHub Release (обычный, НЕ prerelease —
 # иначе releases/latest/download/... вернёт 404). Пример:
@@ -27,19 +26,10 @@ build_telegram() {
   echo "  ✓ $(unzip -l dist/telegram.zip | awk 'END{print $1}') байт распакованного, $(du -h dist/telegram.zip | cut -f1) zip"
 }
 
-build_whatsapp() {
-  echo "▶ whatsapp.zip (node/whatsapp-web.js, node_modules ПРЕД-упакован)"
-  rm -f dist/whatsapp.zip
-  ( cd whatsapp && npm ci --omit=dev >/dev/null 2>&1 || npm install --omit=dev >/dev/null 2>&1 )
-  # Chrome не кладём в zip — его тянет provision (puppeteer install.mjs) на машине пользователя.
-  ( cd whatsapp && zip -qr "../dist/whatsapp.zip" index.js auth_descriptor.js connector.json package.json package-lock.json node_modules )
-  echo "  ✓ $(du -h dist/whatsapp.zip | cut -f1) zip"
-}
-
 build_manifest() {
   echo "▶ manifest.json (карта версий коннекторов)"
   local entries=""
-  for dir in telegram whatsapp; do
+  for dir in telegram; do
     local cjson="$dir/connector.json"
     [ -f "$cjson" ] || continue
     local ver
@@ -53,9 +43,8 @@ build_manifest() {
 
 case "$WHAT" in
   telegram) build_telegram ;;
-  whatsapp) build_whatsapp ;;
-  all)      build_telegram; build_whatsapp ;;
-  *) echo "Неизвестный коннектор: $WHAT (telegram|whatsapp|all)"; exit 1 ;;
+  all)      build_telegram ;;
+  *) echo "Неизвестный коннектор: $WHAT (telegram|all)"; exit 1 ;;
 esac
 build_manifest
 echo "Готово. Ассеты в dist/."

@@ -9,7 +9,6 @@
 | Коннектор | Runtime | Порт | Provision | Описание |
 |-----------|---------|------|-----------|----------|
 | `telegram` | python (telethon) | 3200 | `venv` + `pip install -r requirements.txt` | Telegram через user-сессию (api_id/api_hash/телефон + код, поддержка 2FA). |
-| `whatsapp` | node (whatsapp-web.js) | 3100 | `node node_modules/puppeteer/install.mjs` (тянет Chrome) | WhatsApp через QR-логин. `node_modules` пред-упакован в zip. |
 
 ## Как это устроено
 
@@ -29,7 +28,7 @@
 ## Сборка и публикация
 
 ```bash
-./build.sh                 # → dist/telegram.zip, dist/whatsapp.zip (плоские)
+./build.sh                 # → dist/telegram.zip, dist/manifest.json (плоские)
 gh release upload connectors-v1 dist/telegram.zip --clobber --repo stepanovis/kelly-connectors
 ```
 
@@ -40,3 +39,5 @@ gh release upload connectors-v1 dist/telegram.zip --clobber --repo stepanovis/ke
 ## Чистота пакетов
 
 В zip НЕ попадают: личные api_id/телефоны, файлы сессий (`telegram_session*`), токены. Токен моста генерится Kelly при установке и передаётся через env. См. `.gitignore`.
+
+WhatsApp снят из поддерживаемых интеграций Kelly (#1081). Новые сборки его не включают. Установленные пользовательские auth/credentials и история не удаляются при обновлении desktop.
