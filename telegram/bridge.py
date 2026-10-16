@@ -267,6 +267,7 @@ def _entity_chat_brief(entity):
         return {
             'id': entity_to_chat_id(entity),
             'name': entity_name(entity),
+            'username': entity.username,
             'isGroup': False,
             'isChannel': False,
             'unreadCount': 0,
@@ -345,6 +346,7 @@ async def handle_chats(request):
             chats.append({
                 'id': chat_id,
                 'name': d.name or entity_name(d.entity),
+                'username': getattr(d.entity, 'username', None),
                 'isGroup': d.is_group,
                 'isChannel': d.is_channel and not d.is_group,
                 'unreadCount': d.unread_count or 0,
@@ -369,7 +371,10 @@ async def handle_messages(request):
     try:
         peer_id = parse_chat_id(chat_id_str)
         entity = await client.get_entity(peer_id)
-        messages = await client.get_messages(entity, limit=limit)
+        before_id = int(request.query.get('beforeId', '0'))
+        if before_id < 0:
+            return web.json_response({'error': 'invalid beforeId'}, status=400)
+        messages = await client.get_messages(entity, limit=limit, **({'max_id': before_id} if before_id else {}))
         msg_list = []
         for msg in reversed(messages):
             msg_list.append(message_to_dict(msg, chat_id_str))
