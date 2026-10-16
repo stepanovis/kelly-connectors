@@ -2,22 +2,40 @@
   "name": "telegram",
   "bridge_id": "telegram",
   "type": "messenger",
-  "version": "1.4.1",
+  "version": "1.4.2-alpha.0",
   "contract_version": "1.0",
   "runtime": "python",
   "entry": "bridge.py",
   "port": 3200,
   "label": "Telegram",
-  "capabilities": ["send", "read", "contacts", "stable_message_id"],
+  "capabilities": [
+    "send",
+    "read",
+    "contacts",
+    "stable_message_id",
+    "avatar"
+  ],
   "provision": [
     "python3 -m venv venv",
     "venv/bin/pip install --disable-pip-version-check -q -r requirements.txt"
   ],
   "connect_schema": {
     "initial": [
-      { "key": "api_id", "type": "text", "label": "API ID" },
-      { "key": "api_hash", "type": "secret", "label": "API Hash" },
-      { "key": "phone", "type": "phone", "label": "Номер телефона" }
+      {
+        "key": "api_id",
+        "type": "text",
+        "label": "API ID"
+      },
+      {
+        "key": "api_hash",
+        "type": "secret",
+        "label": "API Hash"
+      },
+      {
+        "key": "phone",
+        "type": "phone",
+        "label": "Номер телефона"
+      }
     ]
   }
 }

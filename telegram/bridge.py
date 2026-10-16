@@ -447,6 +447,39 @@ async def handle_message_media(request):
         return web.json_response({'error': str(e)}, status=500)
 
 
+async def handle_identity(request):
+    if not _ready():
+        return web.json_response({'error': 'Telegram not ready'}, status=503)
+    me = await client.get_me()
+    return web.json_response({'id': me.id, 'username': me.username or '', 'name': entity_name(me)})
+
+
+async def handle_avatar_send(request):
+    if not _ready():
+        return web.json_response({'error': 'Telegram not ready'}, status=503)
+    data = await request.json()
+    me = await client.get_me()
+    if data.get('account_id') != me.id:
+        return web.json_response({'error': 'telegram_account_changed'}, status=409)
+    chat_id = data.get('chat_id')
+    if not isinstance(chat_id, int) or chat_id <= 0:
+        return web.json_response({'error': 'private chat required'}, status=400)
+    entity = await client.get_entity(chat_id)
+    if not isinstance(entity, User) or entity.bot or entity.id == me.id:
+        return web.json_response({'error': 'private contact required'}, status=400)
+    if 'text' in data:
+        if not isinstance(data['text'], str) or not data['text'].strip():
+            return web.json_response({'error': 'text required'}, status=400)
+        msg = await client.send_message(entity, data['text'])
+    else:
+        import base64
+        import io
+        content = io.BytesIO(base64.b64decode(data['bytes'], validate=True))
+        content.name = os.path.basename(data['filename'])
+        msg = await client.send_file(entity, content, caption=data.get('caption', ''))
+    return web.json_response({'message_id': msg.id})
+
+
 async def handle_messages_send(request):
     if not _ready():
         return web.json_response({'error': 'Telegram not ready'}, status=503)
@@ -679,6 +712,8 @@ def create_app():
     app.router.add_post('/auth/submit', handle_auth_submit)
     app.router.add_post('/auth/cancel', handle_auth_cancel)
     app.router.add_post('/auth/code', handle_auth_code)  # legacy alias → /auth/submit
+    app.router.add_get('/identity', handle_identity)
+    app.router.add_post('/avatar/send', handle_avatar_send)
     app.router.add_get('/contacts', handle_contacts)
     app.router.add_get('/contacts/search', handle_contacts_search)
     app.router.add_get('/chats', handle_chats)
