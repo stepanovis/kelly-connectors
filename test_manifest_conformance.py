@@ -17,7 +17,7 @@ import pytest
 REPO = os.path.dirname(__file__)
 REQUIRED = ["name", "bridge_id", "type", "version", "contract_version",
             "runtime", "entry", "port", "label", "capabilities"]
-KNOWN_CAPS = {"send", "read", "contacts", "stable_message_id", "media", "search"}
+KNOWN_CAPS = {"send", "read", "contacts", "stable_message_id", "media", "search", "avatar", "forum_topics"}
 CONTRACT_VERSION = "1.0"  # текущая версия контракта Kelly↔коннектор
 
 # Capability → паттерн-маркер реализации в entry-файле (эндпоинт/обработчик).
@@ -27,6 +27,8 @@ CAP_MARKERS = {
     "read": [r"/messages", r"/chats"],
     "contacts": [r"/contacts"],
     "stable_message_id": [r"\bid\b"],  # message-id в форме ответа /messages
+    "avatar": [r"add_post\('/avatar/send'"],
+    "forum_topics": [r"add_get\('/topics'"],
 }
 
 
