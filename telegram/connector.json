@@ -2,7 +2,7 @@
   "name": "telegram",
   "bridge_id": "telegram",
   "type": "messenger",
-  "version": "1.4.2-alpha.0",
+  "version": "1.4.3",
   "contract_version": "1.0",
   "runtime": "python",
   "entry": "bridge.py",
@@ -13,7 +13,8 @@
     "read",
     "contacts",
     "stable_message_id",
-    "avatar"
+    "avatar",
+    "forum_topics"
   ],
   "provision": [
     "python3 -m venv venv",

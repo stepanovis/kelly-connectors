@@ -10,9 +10,10 @@ Endpoints (require Bearer token):
   GET  /contacts            - List contacts
   GET  /contacts/search?q=  - Search contacts
   GET  /chats               - List dialogs/chats
+  GET  /topics?chatId=      - Forum topic names/IDs and next_offset pagination
   GET  /messages?chatId=    - Read messages from a chat
   GET  /messages/unread     - Get unread messages
-  POST /messages/send       - Send a message
+  POST /messages/send       - Send a message (optional integer topic_id)
 
 Usage:
   1. Set environment variables (or use defaults):
@@ -485,6 +486,62 @@ async def handle_avatar_send(request):
     return web.json_response({'message_id': msg.id})
 
 
+def forum_request(method, entity, **kwargs):
+    # Telethon >=1.36 is supported: Telegram moved these methods from channels
+    # to messages in newer API layers. Keep existing installed environments.
+    constructor = getattr(functions.messages, method, None)
+    if constructor:
+        return constructor(peer=entity, **kwargs)
+    return getattr(functions.channels, method)(channel=entity, **kwargs)
+
+
+def forum_peer(chat_id):
+    # Preserve the channel kind from /chats; a bare positive ID can resolve a user.
+    if chat_id.startswith('channel_'):
+        return PeerChannel(int(chat_id.split('_', 1)[1]))
+    return parse_chat_id(chat_id)
+
+
+async def handle_topics(request):
+    if not _ready():
+        return web.json_response({'error': 'Telegram not ready'}, status=503)
+    chat_id = request.query.get('chatId', '')
+    if not chat_id:
+        return web.json_response({'error': 'chatId required'}, status=400)
+    query = {}
+    for key, default in [('limit', 100), ('offset_date', 0), ('offset_id', 0), ('offset_topic', 0)]:
+        raw = request.query.get(key, str(default))
+        minimum, maximum = (1, 100) if key == 'limit' else (0, 2147483647)
+        if not raw.isascii() or not raw.isdigit() or not minimum <= int(raw) <= maximum:
+            return web.json_response({'error': f'{key} must be an integer from {minimum} to {maximum}'}, status=400)
+        query[key] = int(raw)
+    query['q'] = request.query.get('q') or None
+    try:
+        entity = await client.get_entity(forum_peer(chat_id))
+        if not isinstance(entity, Channel) or not entity.forum:
+            return web.json_response({'error': 'chat is not a forum group'}, status=400)
+        page = await client(forum_request('GetForumTopicsRequest', entity, **query))
+        topics = [t for t in page.topics if isinstance(t, types.ForumTopic)]
+        next_offset = None
+        if topics:
+            last = topics[-1]
+            if page.order_by_create_date:
+                date = last.date
+            else:
+                message = next((m for m in page.messages if m.id == last.top_message), None)
+                if message is None:
+                    message = await client.get_messages(entity, ids=last.top_message)
+                date = message.date
+            next_offset = {'offset_date': int(date.timestamp()), 'offset_id': last.top_message, 'offset_topic': last.id}
+        return web.json_response({
+            'topics': [{'topic_id': t.id, 'name': t.title, 'closed': bool(t.closed), 'hidden': bool(t.hidden)} for t in topics],
+            'count': page.count,
+            'next_offset': next_offset,
+        })
+    except Exception as e:
+        return web.json_response({'error': str(e)}, status=502)
+
+
 async def handle_messages_send(request):
     if not _ready():
         return web.json_response({'error': 'Telegram not ready'}, status=503)
@@ -497,6 +554,9 @@ async def handle_messages_send(request):
     phone = data.get('phone', '')
     username = data.get('username', '')
     text = data.get('text', '')
+    topic_id = data.get('topic_id')
+    if 'topic_id' in data and (type(topic_id) is not int or not 1 <= topic_id <= 2147483647):
+        return web.json_response({'error': 'topic_id must be an integer from 1 to 2147483647'}, status=400)
 
     if not text:
         return web.json_response({'error': 'text required'}, status=400)
@@ -504,7 +564,7 @@ async def handle_messages_send(request):
     try:
         entity = None
         if chat_id_str:
-            peer_id = parse_chat_id(chat_id_str)
+            peer_id = forum_peer(chat_id_str) if topic_id is not None else parse_chat_id(chat_id_str)
             entity = await client.get_entity(peer_id)
         elif phone:
             entity = await client.get_entity(phone)
@@ -513,11 +573,22 @@ async def handle_messages_send(request):
         else:
             return web.json_response({'error': 'chatId, phone, or username required'}, status=400)
 
-        msg = await client.send_message(entity, text)
+        send_options = {}
+        if topic_id is not None:
+            if not isinstance(entity, Channel) or not entity.forum:
+                return web.json_response({'error': 'chat is not a forum group'}, status=400)
+            result = await client(forum_request('GetForumTopicsByIDRequest', entity, topics=[topic_id]))
+            if not any(isinstance(t, types.ForumTopic) and t.id == topic_id for t in result.topics):
+                return web.json_response({'error': 'topic not found'}, status=404)
+            # General (id=1) uses an ordinary send, per Telegram's forum contract.
+            if topic_id != 1:
+                send_options['reply_to'] = topic_id
+        msg = await client.send_message(entity, text, **send_options)
         return web.json_response({
             'ok': True,
             'id': msg.id,
             'to': entity_to_chat_id(entity),
+            **({'topic_id': topic_id} if topic_id is not None else {}),
         })
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500)
@@ -722,6 +793,7 @@ def create_app():
     app.router.add_get('/contacts', handle_contacts)
     app.router.add_get('/contacts/search', handle_contacts_search)
     app.router.add_get('/chats', handle_chats)
+    app.router.add_get('/topics', handle_topics)
     app.router.add_get('/messages', handle_messages)
     app.router.add_get('/messages/unread', handle_messages_unread)
     app.router.add_post('/messages/send', handle_messages_send)
