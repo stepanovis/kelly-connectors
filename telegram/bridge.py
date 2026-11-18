@@ -28,6 +28,7 @@ import json
 import logging
 import signal as _signal
 import time
+from urllib.parse import quote
 from datetime import datetime, timezone
 
 from aiohttp import web
@@ -114,6 +115,15 @@ def parse_chat_id(chat_id_str):
     return int(chat_id_str)
 
 
+def history_peer(chat_id):
+    """Keep the kind returned by /chats when selecting history or its attachment."""
+    peer_id = parse_chat_id(chat_id)
+    for prefix, peer_type in [('user_', PeerUser), ('chat_', PeerChat), ('channel_', PeerChannel)]:
+        if chat_id.startswith(prefix):
+            return peer_type(peer_id)
+    return peer_id
+
+
 def entity_name(entity):
     """Get display name for an entity."""
     if isinstance(entity, User):
@@ -144,6 +154,19 @@ def entity_to_dict(entity):
     return {'id': str(getattr(entity, 'id', 0)), 'name': str(entity)}
 
 
+def message_attachment(msg):
+    """Downloadable file metadata; link previews/polls are not files."""
+    if not isinstance(msg.media, (MessageMediaDocument, MessageMediaPhoto)) or not msg.file:
+        return None
+    photo = isinstance(msg.media, MessageMediaPhoto)
+    return {
+        'name': msg.file.name or (f'photo-{msg.id}.jpg' if photo else f'file-{msg.id}{msg.file.ext or ""}'),
+        'mimeType': msg.file.mime_type or 'application/octet-stream',
+        'sizeBytes': msg.file.size,
+        'kind': 'photo' if photo else 'document',
+    }
+
+
 def message_to_dict(msg, chat_id_str=''):
     """Convert a Telethon message to a JSON-friendly dict."""
     sender_id = ''
@@ -166,6 +189,7 @@ def message_to_dict(msg, chat_id_str=''):
         'timestamp': int(msg.date.timestamp()) if msg.date else 0,
         'type': 'chat' if not msg.media else 'media',
         'hasMedia': msg.media is not None,
+        'attachment': message_attachment(msg),
         'replyTo': msg.reply_to.reply_to_msg_id if msg.reply_to else None,
     }
 
@@ -370,7 +394,7 @@ async def handle_messages(request):
         return web.json_response({'error': 'chatId parameter required'}, status=400)
     limit = int(request.query.get('limit', '50'))
     try:
-        peer_id = parse_chat_id(chat_id_str)
+        peer_id = history_peer(chat_id_str)
         entity = await client.get_entity(peer_id)
         before_id = int(request.query.get('beforeId', '0'))
         if before_id < 0:
@@ -422,32 +446,32 @@ async def handle_message_media(request):
     chat_id_str = request.query.get('chatId', '')
     if not chat_id_str:
         return web.json_response({'error': 'chatId parameter required'}, status=400)
-    msg_id = int(request.match_info['msg_id'])
     try:
-        peer_id = parse_chat_id(chat_id_str)
+        msg_id = int(request.match_info['msg_id'])
+        if msg_id <= 0:
+            raise ValueError('messageId must be positive')
+        peer_id = history_peer(chat_id_str)
+    except ValueError:
+        return web.json_response({'error': 'Invalid chatId or messageId'}, status=400)
+    try:
         entity = await client.get_entity(peer_id)
         messages = await client.get_messages(entity, ids=msg_id)
-        if not messages or not messages.media:
+        metadata = message_attachment(messages) if messages else None
+        if not metadata:
             return web.json_response({'error': 'No media in message'}, status=404)
+        if (metadata['sizeBytes'] or 0) > 20 * 1024 * 1024:
+            return web.json_response({'error': 'telegram_file_too_large'}, status=413)
         import io
         buf = io.BytesIO()
         await client.download_media(messages, file=buf)
         buf.seek(0)
         data = buf.read()
-        # Determine filename
-        filename = 'file'
-        if hasattr(messages.media, 'document') and messages.media.document:
-            for attr in messages.media.document.attributes:
-                if hasattr(attr, 'file_name') and attr.file_name:
-                    filename = attr.file_name
-                    break
-            mime = getattr(messages.media.document, 'mime_type', 'application/octet-stream')
-        else:
-            mime = 'application/octet-stream'
+        if not data:
+            return web.json_response({'error': 'Media download returned no bytes'}, status=502)
         return web.Response(
             body=data,
-            content_type=mime,
-            headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+            content_type=metadata['mimeType'],
+            headers={'Content-Disposition': "attachment; filename*=UTF-8''" + quote(metadata['name'], safe='')}
         )
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500)
